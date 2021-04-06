@@ -1,0 +1,24 @@
+{
+  "name": "koishi-plugin-mediawiki",
+  "version": "0.0.1",
+  "description": "MediaWiki for koishijs",
+  "main": "index.js",
+  "scripts": {
+    "bump": "bump"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.5",
+    "mwbot": "^2.0.0",
+    "qs": "^6.10.1"
+  },
+  "devDependencies": {
+    "@dragon-fish/bump": "^0.0.13",
+    "koishi-core": "^3.7.0"
+  },
+  "peerDependencies": {
+    "koishi-core": "^3.7.0"
+  },
+  "repository": "https://github.com/koishijs/koishi-plugin-mediawiki",
+  "author": "Dragon-Fish <824399619@qq.com>",
+  "license": "Apache-2.0"
+}
