@@ -6,6 +6,7 @@
  * @license Apache-2.0
  */
 const cheerio = require('cheerio')
+const { segment } = require('koishi-utils')
 
 const getBot = require('./module/getBot')
 const isValidApi = require('./util/isValidApi')
@@ -42,29 +43,26 @@ module.exports.apply = (koishi, pOptions) => {
       if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`
 
       const { redirects, interwiki, pages } = query
-      const thisPage = pages[Object.keys(pages)[0]]
-      const { pageid, title: pagetitle, missing, invalid } = thisPage
-
       const msg = []
 
       if (interwiki && interwiki.length) {
-        msg.push(`跨语言链接：${interwiki[0].url}`)
+        msg.push(`跨语言链接：${interwiki?.[0]?.url}`)
       } else {
-        msg.push(`您要的 ${thisPage.title}：`)
+        const thisPage = pages[Object.keys(pages)[0]]
+        const { pageid, title: pagetitle, missing, invalid } = thisPage
+        msg.push(`您要的“${thisPage.title}”：`)
         if (redirects && redirects.length > 0) {
           const { from, to } = redirects[0]
-          msg.push(`  重定向：[${from}] ➡️ [${to}]`)
+          msg.push(`重定向：[${from}] → [${to}]`)
         }
         if (invalid !== undefined) {
-          msg.push(
-            `警告：页面名称不合法。(${thisPage.invalidreason || '原因未知'})`
-          )
+          msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
         } else if (missing !== undefined) {
           msg.push(
-            `${getUrl(mwApi, {
+            `页面不存在: ${getUrl(mwApi, {
               title: pagetitle,
               action: 'edit',
-            })} (页面不存在)`
+            })}`
           )
         } else {
           msg.push(getUrl(mwApi, { curid: pageid }))
@@ -75,16 +73,17 @@ module.exports.apply = (koishi, pOptions) => {
               prop: 'text',
               disableeditsection: 1,
               disabletoc: 1,
+              wrapoutputclass: 'mw-parser-output',
             })
             const $ = cheerio.load(parse?.text?.['*'] || '')
-            const text = $('div > p')
+            const text = $('div.mw-parser-output > p')
               .text()
               .replace(/\s+/g, ' ')
-            msg.push(text.substr(0, 120))
+            msg.push(text.length > 150 ? text.substr(0, 150) + '...' : text)
           }
         }
       }
-      return msg.join('\n')
+      return segment('quote', { id: session.messageId }) + msg.join('\n')
     })
 
   // @command wiki.link
