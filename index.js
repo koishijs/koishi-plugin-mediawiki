@@ -30,12 +30,15 @@ module.exports.apply = (koishi, pOptions) => {
       if (!title) return getUrl(mwApi)
       const { query, error } = await bot.request({
         action: 'query',
-        prop: '',
-        rvprop: '',
-        titles: title,
+        prop: 'extracts|info',
         iwurl: 1,
+        titles: title,
         redirects: 1,
         converttitles: 1,
+        exchars: '150',
+        exlimit: 'max',
+        explaintext: 1,
+        inprop: 'url|displaytitle',
       })
 
       // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
@@ -49,7 +52,15 @@ module.exports.apply = (koishi, pOptions) => {
         msg.push(`跨语言链接：${interwiki?.[0]?.url}`)
       } else {
         const thisPage = pages[Object.keys(pages)[0]]
-        const { pageid, title: pagetitle, missing, invalid } = thisPage
+        const {
+          pageid,
+          title: pagetitle,
+          missing,
+          invalid,
+          extract,
+          fullurl,
+          editurl,
+        } = thisPage
         msg.push(`您要的“${thisPage.title}”：`)
         if (redirects && redirects.length > 0) {
           const { from, to } = redirects[0]
@@ -58,28 +69,11 @@ module.exports.apply = (koishi, pOptions) => {
         if (invalid !== undefined) {
           msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
         } else if (missing !== undefined) {
-          msg.push(
-            `页面不存在: ${getUrl(mwApi, {
-              title: pagetitle,
-              action: 'edit',
-            })}`
-          )
+          msg.push(`${editurl} (页面不存在)`)
         } else {
           msg.push(getUrl(mwApi, { curid: pageid }))
-          if (options.details) {
-            const { parse } = await bot.request({
-              action: 'parse',
-              pageid,
-              prop: 'text',
-              disableeditsection: 1,
-              disabletoc: 1,
-              wrapoutputclass: 'mw-parser-output',
-            })
-            const $ = cheerio.load(parse?.text?.['*'] || '')
-            const text = $('div.mw-parser-output > p')
-              .text()
-              .replace(/\s+/g, ' ')
-            msg.push(text.length > 150 ? text.substr(0, 150) + '...' : text)
+          if (options.details && extract && extract !== '...') {
+            msg.push(extract)
           }
         }
       }
@@ -109,12 +103,40 @@ module.exports.apply = (koishi, pOptions) => {
 
   // @command wiki.search
   koishi
-    .command('wiki.search <page:string>', '通过名称搜索页面')
+    .command('wiki.search <search:text>', '通过名称搜索页面')
     .channelFields(['mwApi'])
-    .action(({ session }, page) => {
+    .action(async ({ session }, search) => {
+      if (!search) {
+        session.send('要搜索什么呢？(输入空行或句号取消)')
+        search = (await session.prompt(30 * 1000)).trim()
+        if (!search || search === '.' || search === '。') return ''
+      }
       const bot = getBot(session)
       if (!bot) return session.execute('wiki.link')
-      return '施工中…'
+      const [keyword, results, summarys, links] = await bot.request({
+        action: 'opensearch',
+        format: 'json',
+        search,
+        redirects: 'resolve',
+        limit: 3,
+      })
+
+      const msg = []
+
+      if (results.length < 1) {
+        return `关键词“${search}”没有匹配结果。`
+      }
+
+      results.forEach((item, index) => {
+        msg.push(`${index + 1}. ${item}`)
+      })
+      msg.push('请输入想查看的页面编号。')
+
+      await session.send(msg.join('\n'))
+      const answer = parseInt(await session.prompt(30 * 1000))
+      if (!isNaN(answer) && results[answer - 1]) {
+        session.execute('wiki --details ' + results[answer - 1])
+      }
     })
 
   // Shortcut

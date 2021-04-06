@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-mediawiki",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "MediaWiki for koishijs",
   "main": "index.js",
   "scripts": {
