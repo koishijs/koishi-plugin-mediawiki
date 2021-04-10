@@ -21,7 +21,7 @@ module.exports.apply = (koishi, pOptions) => {
     .command('wiki [title:text]', 'MediaWiki 相关功能', {})
     .example('wiki 页面 - 获取页面链接')
     .channelFields(['mwApi'])
-    .option('details', '-d 显示页面的更多咨询', { type: 'boolean' })
+    .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
     .action(async ({ session, options }, title = '') => {
       const { mwApi } = session.channel
