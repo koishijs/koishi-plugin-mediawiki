@@ -5,6 +5,7 @@
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
+const axios = require('axios')
 const cheerio = require('cheerio')
 const { segment } = require('koishi-utils')
 
@@ -12,12 +13,17 @@ const getBot = require('./module/getBot')
 const isValidApi = require('./util/isValidApi')
 const getUrl = require('./util/getUrl')
 const resolveBrackets = require('./util/resolveBrackets')
+const { Context } = require('koishi-core')
 
 module.exports.name = 'mediawiki'
 
-module.exports.apply = (koishi, pOptions) => {
+/**
+ * @param {Context} ctx
+ * @param {*} pOptions
+ */
+module.exports.apply = (ctx, pOptions) => {
   // @command wiki
-  koishi
+  ctx
     .command('wiki [title:text]', 'MediaWiki 相关功能', {})
     .example('wiki 页面 - 获取页面链接')
     .channelFields(['mwApi'])
@@ -38,7 +44,7 @@ module.exports.apply = (koishi, pOptions) => {
         exchars: '150',
         exlimit: 'max',
         explaintext: 1,
-        inprop: 'url|displaytitle',
+        inprop: 'url|displaytitle'
       })
 
       // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
@@ -57,9 +63,9 @@ module.exports.apply = (koishi, pOptions) => {
           title: pagetitle,
           missing,
           invalid,
-          extract,
+          // extract,
           fullurl,
-          editurl,
+          editurl
         } = thisPage
         msg.push(`您要的“${thisPage.title}”：`)
         if (redirects && redirects.length > 0) {
@@ -72,8 +78,30 @@ module.exports.apply = (koishi, pOptions) => {
           msg.push(`${editurl} (页面不存在)`)
         } else {
           msg.push(getUrl(mwApi, { curid: pageid }))
-          if (options.details && extract && extract !== '...') {
-            msg.push(extract)
+
+          // Page Details
+          if (options.details) {
+            const { parse } = await bot.request({
+              action: 'parse',
+              pageid,
+              prop: 'text|wikitext',
+              wrapoutputclass: 'mw-parser-output',
+              disablelimitreport: 1,
+              disableeditsection: 1,
+              disabletoc: 1
+            })
+            const $ = cheerio.load(parse?.text?.['*'] || '')
+            const $contents = $('.mw-parser-output > p')
+            const extract = $contents.text().trim() || ''
+            ctx
+              .logger('mediawiki')
+              .info({ html: parse.text, $contents, extract })
+            // const extract = parse?.wikitext?.['*'] || ''
+            if (extract) {
+              msg.push(
+                extract.length > 150 ? extract.slice(0, 150) + '...' : extract
+              )
+            }
           }
         }
       }
@@ -81,9 +109,9 @@ module.exports.apply = (koishi, pOptions) => {
     })
 
   // @command wiki.link
-  koishi
+  ctx
     .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接', {
-      authority: 2,
+      authority: 2
     })
     .channelFields(['mwApi'])
     .action(async ({ session }, api) => {
@@ -102,7 +130,7 @@ module.exports.apply = (koishi, pOptions) => {
     })
 
   // @command wiki.search
-  koishi
+  ctx
     .command('wiki.search <search:text>', '通过名称搜索页面')
     .channelFields(['mwApi'])
     .action(async ({ session }, search) => {
@@ -118,7 +146,7 @@ module.exports.apply = (koishi, pOptions) => {
         format: 'json',
         search,
         redirects: 'resolve',
-        limit: 3,
+        limit: 3
       })
 
       const msg = []
@@ -140,7 +168,7 @@ module.exports.apply = (koishi, pOptions) => {
     })
 
   // Shortcut
-  koishi.middleware(async (session, next) => {
+  ctx.middleware(async (session, next) => {
     await next()
     const content = resolveBrackets(session.content)
     const link = /\[\[(.+?)(?:\|.*)?\]\]/.exec(content)
@@ -152,4 +180,84 @@ module.exports.apply = (koishi, pOptions) => {
       session.execute('wiki --quiet --details ' + template[1])
     }
   })
+
+  // parse
+  ctx
+    .command('wiki.parse <text:text>', '解析 wiki 标记文本', {
+      minInterval: 10 * 1000,
+      authority: 3
+    })
+    .option('title', '-t <title:string> 用于渲染的页面标题')
+    .option('pure', '-p 纯净模式')
+    .channelFields(['mwApi'])
+    .action(async ({ session, options }, text = '') => {
+      if (!text) return ''
+      text = resolveBrackets(text)
+      const { mwApi } = session.channel
+      if (!mwApi) return session.execute('wiki.link')
+      const bot = getBot(session)
+
+      const { parse, error } = await bot.request({
+        action: 'parse',
+        title: options.title,
+        text,
+        pst: 1,
+        disableeditsection: 1,
+        preview: 1
+      })
+
+      // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
+
+      if (!parse) return `出现了亿点问题${error ? '：' + error : ''}。`
+
+      if (options.pure) {
+        return require('../../Chatbot-SILI/utils/txt2img').shotHtml(
+          parse?.text?.['*']
+        )
+      }
+
+      const { data } = await axios.get(
+        getUrl(mwApi, { title: 'special:blankpage' })
+      )
+      const $ = cheerio.load(data)
+
+      $('h1').text(parse?.title)
+      $('#mw-content-text').html(parse?.text?.['*'])
+      $('#mw-content-text').append(
+        '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>'
+      )
+
+      // 处理 URL
+      function resolveUrl(oldOne) {
+        const thisUrl = new URL(getUrl(mwApi, { title: 'special:blankpage' }))
+        let newOne = oldOne
+        // 处理不是 http:// https:// 或者 // 开头的
+        if (!/^(https?:)?\/\//i.test(oldOne)) {
+          // 绝对地址
+          if (oldOne.startsWith('/')) {
+            newOne = thisUrl.origin + oldOne
+          }
+          // 相对地址
+          else {
+            let path = thisUrl.pathname
+            // 解析一下 url 防止抑郁
+            if (!path.endsWith('/')) {
+              path = path.split('/')
+              path.pop()
+              path = path.join('/') + '/'
+            }
+            newOne = thisUrl.origin + path + oldOne
+          }
+        }
+        return newOne
+      }
+      $('[src]').attr('src', function() {
+        return resolveUrl($(this).attr('src'))
+      })
+      $('link[href]').attr('href', function() {
+        return resolveUrl($(this).attr('href'))
+      })
+
+      return require('../../Chatbot-SILI/utils/txt2img').shotHtml($.html())
+    })
 }

@@ -7,13 +7,14 @@
     "bump": "bump"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.5",
+    "axios": "^0.21.1",
+    "cheerio": "^1.0.0-rc.9",
     "mwbot": "^2.0.0",
     "qs": "^6.10.1"
   },
   "devDependencies": {
-    "@dragon-fish/bump": "^0.0.13",
-    "koishi-core": "^3.7.0"
+    "@dragon-fish/bump": "^0.0.15",
+    "koishi-core": "^3.10.2"
   },
   "peerDependencies": {
     "koishi-core": "^3.7.0"
