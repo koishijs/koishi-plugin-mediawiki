@@ -5,7 +5,6 @@
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
-const axios = require('axios')
 const cheerio = require('cheerio')
 const { segment } = require('koishi-utils')
 
@@ -13,15 +12,14 @@ const getBot = require('./module/getBot')
 const isValidApi = require('./util/isValidApi')
 const getUrl = require('./util/getUrl')
 const resolveBrackets = require('./util/resolveBrackets')
-const { Context } = require('koishi-core')
 
 module.exports.name = 'mediawiki'
 
 /**
- * @param {Context} ctx
+ * @param {import('koishi-core').Context} ctx
  * @param {*} pOptions
  */
-module.exports.apply = (ctx, pOptions) => {
+module.exports.apply = (ctx) => {
   // @command wiki
   ctx
     .command('wiki [title:text]', 'MediaWiki 相关功能', {})
@@ -36,6 +34,7 @@ module.exports.apply = (ctx, pOptions) => {
       if (!title) return getUrl(mwApi)
       const { query, error } = await bot.request({
         action: 'query',
+        formatversion: 2,
         prop: 'extracts|info',
         iwurl: 1,
         titles: title,
@@ -44,10 +43,10 @@ module.exports.apply = (ctx, pOptions) => {
         exchars: '150',
         exlimit: 'max',
         explaintext: 1,
-        inprop: 'url|displaytitle'
+        inprop: 'url|displaytitle',
       })
 
-      // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
+      ctx.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
 
       if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`
 
@@ -57,7 +56,7 @@ module.exports.apply = (ctx, pOptions) => {
       if (interwiki && interwiki.length) {
         msg.push(`跨语言链接：${interwiki?.[0]?.url}`)
       } else {
-        const thisPage = pages[Object.keys(pages)[0]]
+        const thisPage = pages[0]
         const {
           pageid,
           title: pagetitle,
@@ -65,15 +64,22 @@ module.exports.apply = (ctx, pOptions) => {
           invalid,
           // extract,
           fullurl,
-          editurl
+          special,
+          editurl,
         } = thisPage
-        msg.push(`您要的“${thisPage.title}”：`)
+        msg.push(`您要的“${pagetitle}”：`)
         if (redirects && redirects.length > 0) {
           const { from, to } = redirects[0]
           msg.push(`重定向：[${from}] → [${to}]`)
         }
         if (invalid !== undefined) {
           msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
+        } else if (special) {
+          msg.push(
+            `${getUrl(mwApi, { title: pagetitle })} (${
+              missing ? '不存在的' : ''
+            }特殊页面)`
+          )
         } else if (missing !== undefined) {
           msg.push(`${editurl} (页面不存在)`)
         } else {
@@ -88,7 +94,7 @@ module.exports.apply = (ctx, pOptions) => {
               wrapoutputclass: 'mw-parser-output',
               disablelimitreport: 1,
               disableeditsection: 1,
-              disabletoc: 1
+              disabletoc: 1,
             })
             const $ = cheerio.load(parse?.text?.['*'] || '')
             const $contents = $('.mw-parser-output > p')
@@ -111,7 +117,7 @@ module.exports.apply = (ctx, pOptions) => {
   // @command wiki.link
   ctx
     .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接', {
-      authority: 2
+      authority: 2,
     })
     .channelFields(['mwApi'])
     .action(async ({ session }, api) => {
@@ -146,7 +152,7 @@ module.exports.apply = (ctx, pOptions) => {
         format: 'json',
         search,
         redirects: 'resolve',
-        limit: 3
+        limit: 3,
       })
 
       const msg = []
@@ -172,26 +178,27 @@ module.exports.apply = (ctx, pOptions) => {
     await next()
     const content = resolveBrackets(session.content)
     const link = /\[\[(.+?)(?:\|.*)?\]\]/.exec(content)
-    const template = /{{(.+?)(?:\|.*)?}}/.exec(content)
+    // const template = /{{(.+?)(?:\|.*)?}}/.exec(content)
     if (link && link[1]) {
       session.execute('wiki --quiet ' + link[1])
     }
-    if (template && template[1]) {
-      session.execute('wiki --quiet --details ' + template[1])
-    }
+    // if (template && template[1]) {
+    //   session.execute('wiki --quiet --details ' + template[1])
+    // }
   })
 
   // parse
   ctx
     .command('wiki.parse <text:text>', '解析 wiki 标记文本', {
       minInterval: 10 * 1000,
-      authority: 3
+      authority: 3,
     })
     .option('title', '-t <title:string> 用于渲染的页面标题')
     .option('pure', '-p 纯净模式')
     .channelFields(['mwApi'])
     .action(async ({ session, options }, text = '') => {
       if (!text) return ''
+      if (!ctx.puppeteer) return '错误：未找到 puppeteer。'
       text = resolveBrackets(text)
       const { mwApi } = session.channel
       if (!mwApi) return session.execute('wiki.link')
@@ -203,61 +210,60 @@ module.exports.apply = (ctx, pOptions) => {
         text,
         pst: 1,
         disableeditsection: 1,
-        preview: 1
+        preview: 1,
       })
 
       // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
 
       if (!parse) return `出现了亿点问题${error ? '：' + error : ''}。`
 
-      if (options.pure) {
-        return require('../../Chatbot-SILI/utils/txt2img').shotHtml(
-          parse?.text?.['*']
-        )
-      }
+      const page = await ctx.puppeteer.page()
 
-      const { data } = await axios.get(
-        getUrl(mwApi, { title: 'special:blankpage' })
-      )
-      const $ = cheerio.load(data)
-
-      $('h1').text(parse?.title)
-      $('#mw-content-text').html(parse?.text?.['*'])
-      $('#mw-content-text').append(
-        '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>'
-      )
-
-      // 处理 URL
-      function resolveUrl(oldOne) {
-        const thisUrl = new URL(getUrl(mwApi, { title: 'special:blankpage' }))
-        let newOne = oldOne
-        // 处理不是 http:// https:// 或者 // 开头的
-        if (!/^(https?:)?\/\//i.test(oldOne)) {
-          // 绝对地址
-          if (oldOne.startsWith('/')) {
-            newOne = thisUrl.origin + oldOne
-          }
-          // 相对地址
-          else {
-            let path = thisUrl.pathname
-            // 解析一下 url 防止抑郁
-            if (!path.endsWith('/')) {
-              path = path.split('/')
-              path.pop()
-              path = path.join('/') + '/'
-            }
-            newOne = thisUrl.origin + path + oldOne
-          }
+      try {
+        if (options.pure) {
+          await page.setContent(parse?.text?.['*'])
+          const img = await page.screenshot({ fullPage: 1 })
+          await page.close()
+          return segment.image(img)
         }
-        return newOne
-      }
-      $('[src]').attr('src', function() {
-        return resolveUrl($(this).attr('src'))
-      })
-      $('link[href]').attr('href', function() {
-        return resolveUrl($(this).attr('href'))
-      })
 
-      return require('../../Chatbot-SILI/utils/txt2img').shotHtml($.html())
+        await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
+        await page.evaluate((parse) => {
+          // eslint-disable-next-line no-undef
+          $('h1').text(parse?.title)
+          // eslint-disable-next-line no-undef
+          $('#mw-content-text').html(parse?.text?.['*'])
+          // eslint-disable-next-line no-undef
+          $('#mw-content-text').append(
+            '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>'
+          )
+        }, parse)
+        const img = await page.screenshot({ fullPage: 1 })
+        await page.close()
+
+        return segment.image(img)
+      } catch (e) {
+        await page.close()
+        return `Shot failed: ${e}`
+      }
+    })
+
+  ctx
+    .command('wiki.shot [title]', 'screenshot', { authority: 2 })
+    .channelFields(['mwApi'])
+    .action(async ({ session }, title) => {
+      const { mwApi } = session.channel
+      if (!mwApi) return 'Missing api endpoint'
+      if (!ctx.puppeteer) return 'Missing puppeteer'
+      const page = await ctx.puppeteer.page()
+      try {
+        await page.goto(getUrl(mwApi, { title }))
+        const img = await page.screenshot({ fullPage: 1 })
+        await page.close()
+        return segment.image(img)
+      } catch (e) {
+        await page.close()
+        return `Shot failed: ${e}`
+      }
     })
 }

@@ -1,9 +1,7 @@
-const { stringify } = require('qs')
-
 module.exports = (base, params = {}, script = 'index') => {
   let query = ''
   if (Object.keys(params).length) {
-    query = '?' + stringify(params)
+    query = '?' + new URLSearchParams(params)
   }
   return `${base.replace(
     '/api.php',
