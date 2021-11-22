@@ -183,17 +183,18 @@ module.exports.apply = (ctx) => {
     const content = resolveBrackets(session.content)
     const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g
     let matched = []
-    let titles = new Set()
+    let titles = []
     while ((matched = linkReg.exec(content)) !== null) {
-      titles.add(matched[1])
+      titles.push(matched[1])
     }
-    titles = Array.from(titles)
+    /** @type {string[]} */
+    titles = Array.from(new Set(titles))
     if (!titles.length) return
     ctx.logger('wiki').info('titles', titles)
-    // session.send(
-    //   titles.map((i) => `$(wiki -q ${i})`).join('\n===\n')
-    // )
-    titles.forEach((i) => session.execute(`wiki --quiet ${i}`))
+    const msg = await Promise.all(
+      titles.map(async (i) => await session.execute(`wiki -q ${i}`, true))
+    )
+    session.send(msg.join('\n----\n'))
   })
 
   // parse
