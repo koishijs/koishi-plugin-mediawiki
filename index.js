@@ -32,6 +32,10 @@ module.exports.apply = (ctx) => {
       if (!mwApi) return options.quiet ? '' : session.execute('wiki.link')
       const bot = getBot(session)
       if (!title) return getUrl(mwApi)
+      const anchor =
+        title.split('#').length >= 2
+          ? '#' + encodeURI(title.split('#').pop())
+          : ''
       const { query, error } = await bot.request({
         action: 'query',
         formatversion: 2,
@@ -54,7 +58,7 @@ module.exports.apply = (ctx) => {
       const msg = []
 
       if (interwiki && interwiki.length) {
-        msg.push(`跨语言链接：${interwiki?.[0]?.url}`)
+        msg.push(`跨语言链接：${interwiki?.[0]?.url}${anchor}`)
       } else {
         const thisPage = pages[0]
         const {
@@ -63,7 +67,7 @@ module.exports.apply = (ctx) => {
           missing,
           invalid,
           // extract,
-          fullurl,
+          // fullurl,
           special,
           editurl,
         } = thisPage
@@ -76,14 +80,14 @@ module.exports.apply = (ctx) => {
           msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
         } else if (special) {
           msg.push(
-            `${getUrl(mwApi, { title: pagetitle })} (${
+            `${getUrl(mwApi, { title: pagetitle })}${anchor} (${
               missing ? '不存在的' : ''
             }特殊页面)`
           )
         } else if (missing !== undefined) {
           msg.push(`${editurl} (页面不存在)`)
         } else {
-          msg.push(getUrl(mwApi, { curid: pageid }))
+          msg.push(getUrl(mwApi, { curid: pageid }) + anchor)
 
           // Page Details
           if (options.details) {
@@ -177,14 +181,19 @@ module.exports.apply = (ctx) => {
   ctx.middleware(async (session, next) => {
     await next()
     const content = resolveBrackets(session.content)
-    const link = /\[\[(.+?)(?:\|.*)?\]\]/.exec(content)
-    // const template = /{{(.+?)(?:\|.*)?}}/.exec(content)
-    if (link && link[1]) {
-      session.execute('wiki --quiet ' + link[1])
+    const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g
+    let matched = []
+    let titles = new Set()
+    while ((matched = linkReg.exec(content)) !== null) {
+      titles.add(matched[1])
     }
-    // if (template && template[1]) {
-    //   session.execute('wiki --quiet --details ' + template[1])
-    // }
+    titles = Array.from(titles)
+    if (!titles.length) return
+    ctx.logger('wiki').info('titles', titles)
+    // session.send(
+    //   titles.map((i) => `$(wiki -q ${i})`).join('\n===\n')
+    // )
+    titles.forEach((i) => session.execute(`wiki --quiet ${i}`))
   })
 
   // parse
