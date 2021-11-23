@@ -110,7 +110,7 @@ export const apply = (ctx: Context): void => {
           redirects = undefined;
         }
 
-        ctx.logger('wiki').info({ pages });
+        ctx.logger('wiki').debug({ pages });
         const thisPage = pages[0];
         const {
           pageid,
@@ -160,7 +160,7 @@ export const apply = (ctx: Context): void => {
             const extract = $contents.text().trim() || '';
             ctx
               .logger('mediawiki')
-              .info({ html: parse.text, $contents, extract });
+              .debug({ html: parse.text, $contents, extract });
             // const extract = parse?.wikitext?.['*'] || ''
             if (extract) {
               msg.push(
