@@ -40,6 +40,8 @@ module.exports.apply = (ctx) => {
         action: 'query',
         formatversion: 2,
         prop: 'extracts|info',
+        meta: 'siteinfo',
+        siprop: 'specialpagealiases|namespacealiases|namespaces',
         iwurl: 1,
         titles: title,
         redirects: 1,
@@ -50,16 +52,53 @@ module.exports.apply = (ctx) => {
         inprop: 'url|displaytitle',
       })
 
-      ctx.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
+      // ctx.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
 
       if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`
 
-      const { redirects, interwiki, pages } = query
+      let { redirects, pages, interwiki, specialpagealiases, namespaces } =
+        query
       const msg = []
 
       if (interwiki && interwiki.length) {
         msg.push(`跨语言链接：${interwiki?.[0]?.url}${anchor}`)
       } else {
+        /**
+         * @desc 某些特殊页面会暴露服务器 IP 地址，必须特殊处理这些页面
+         *       已知的危险页面包括 Mypage Mytalk
+         */
+        // 这里用标准名称
+        const dangerPageNames = ['Mypage', 'Mytalk']
+        // 获取全部别名
+        const dangerPages = specialpagealiases
+          .filter(({ realname }) => dangerPageNames.includes(realname))
+          .map(({ aliases }) => aliases)
+          .flat(Infinity)
+        // 获取本地特殊名字空间的标准名称
+        const specialNsName = namespaces['-1'].name
+        if (
+          // 发生重定向
+          redirects &&
+          // 重定向自特殊页面
+          redirects[0].from.split(':').shift() === specialNsName &&
+          // 被标记为危险页面
+          dangerPages.includes(
+            redirects[0].from.split(':').pop().split('/').shift()
+          )
+        ) {
+          // 覆写页面资料
+          pages = [
+            {
+              ns: -1,
+              title: redirects[0].from,
+              special: true,
+            },
+          ]
+          // 重置重定向信息
+          redirects = undefined
+        }
+
+        ctx.logger('wiki').info({ pages })
         const thisPage = pages[0]
         const {
           pageid,
@@ -71,6 +110,7 @@ module.exports.apply = (ctx) => {
           special,
           editurl,
         } = thisPage
+
         msg.push(`您要的“${pagetitle}”：`)
         if (redirects && redirects.length > 0) {
           const { from, to, tofragment } = redirects[0]
@@ -83,9 +123,9 @@ module.exports.apply = (ctx) => {
           msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
         } else if (special) {
           msg.push(
-            `${getUrl(mwApi, { title: pagetitle })}${anchor} (${
-              missing ? '不存在的' : ''
-            }特殊页面)`
+            `${getUrl(mwApi, {
+              title: pagetitle,
+            })}${anchor} (${missing ? '不存在的' : ''}特殊页面)`
           )
         } else if (missing !== undefined) {
           msg.push(`${editurl} (页面不存在)`)
@@ -154,6 +194,7 @@ module.exports.apply = (ctx) => {
       }
       const bot = getBot(session)
       if (!bot) return session.execute('wiki.link')
+      // eslint-disable-next-line no-unused-vars
       const [keyword, results, summarys, links] = await bot.request({
         action: 'opensearch',
         format: 'json',
