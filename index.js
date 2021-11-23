@@ -32,7 +32,7 @@ module.exports.apply = (ctx) => {
       if (!mwApi) return options.quiet ? '' : session.execute('wiki.link')
       const bot = getBot(session)
       if (!title) return getUrl(mwApi)
-      const anchor =
+      let anchor =
         title.split('#').length >= 2
           ? '#' + encodeURI(title.split('#').pop())
           : ''
@@ -73,8 +73,11 @@ module.exports.apply = (ctx) => {
         } = thisPage
         msg.push(`您要的“${pagetitle}”：`)
         if (redirects && redirects.length > 0) {
-          const { from, to } = redirects[0]
-          msg.push(`重定向：[${from}] → [${to}]`)
+          const { from, to, tofragment } = redirects[0]
+          msg.push(
+            `重定向：[${from}] → [${to}${tofragment ? '#' + tofragment : ''}]`
+          )
+          if (tofragment) anchor = '#' + encodeURI(tofragment)
         }
         if (invalid !== undefined) {
           msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
