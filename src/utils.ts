@@ -3,13 +3,21 @@ import { Session } from 'koishi-core';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const Mwbot = require('mwbot');
 
+const MOCK_HEADER = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.78',
+};
+const USE_MOCK_HEADER = ['huijiwiki.com'];
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getBot(session: Session<never, 'mwApi'>): any {
   const apiUrl = session?.channel?.mwApi || '';
   if (!apiUrl) return null;
-  return new Mwbot({
-    apiUrl,
-  });
+
+  const bot = new Mwbot({ apiUrl });
+  if (USE_MOCK_HEADER.some((sub) => apiUrl.includes(sub)))
+    bot.globalRequestOptions.headers = MOCK_HEADER;
+  return bot
 }
 
 export function getUrl(base: string, params = {}, script = 'index'): string {
