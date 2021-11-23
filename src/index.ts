@@ -6,18 +6,26 @@
  * @license Apache-2.0
  */
 
+import cheerio from 'cheerio';
+import { Context, Tables } from 'koishi-core';
+import {} from 'koishi-plugin-puppeteer';
+import { segment } from 'koishi-utils';
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils';
 
-const cheerio = require('cheerio');
-const { segment } = require('koishi-utils');
+declare module 'koishi-core' {
+  interface Channel {
+    mwApi?: string;
+  }
+}
+Tables.extend('channel', {
+  fields: {
+    mwApi: 'string',
+  },
+});
 
-module.exports.name = 'mediawiki';
+export const name = 'mediawiki';
 
-/**
- * @param {import('koishi-core').Context} ctx
- * @param {*} pOptions
- */
-module.exports.apply = (ctx) => {
+export const apply = (ctx: Context): void => {
   // @command wiki
   ctx
     .command('wiki [title:text]', 'MediaWiki 相关功能', {})
@@ -54,10 +62,16 @@ module.exports.apply = (ctx) => {
 
       if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`;
 
-      let { redirects, pages, interwiki, specialpagealiases, namespaces } =
-        query;
+      const {
+        redirects: rawRedirects,
+        pages: rawPages,
+        interwiki,
+        specialpagealiases,
+        namespaces,
+      } = query;
       const msg = [];
-
+      let pages = rawPages;
+      let redirects = rawRedirects;
       if (interwiki && interwiki.length) {
         msg.push(`跨语言链接：${interwiki?.[0]?.url}${anchor}`);
       } else {
@@ -192,7 +206,7 @@ module.exports.apply = (ctx) => {
       }
       const bot = getBot(session);
       if (!bot) return session.execute('wiki.link');
-      // eslint-disable-next-line no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const [keyword, results, summarys, links] = await bot.request({
         action: 'opensearch',
         format: 'json',
@@ -225,7 +239,7 @@ module.exports.apply = (ctx) => {
     const content = resolveBrackets(session.content);
     const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g;
     let matched = [];
-    let titles = [];
+    let titles: string[] = [];
     while ((matched = linkReg.exec(content)) !== null) {
       titles.push(matched[1]);
     }
@@ -274,26 +288,21 @@ module.exports.apply = (ctx) => {
       try {
         if (options.pure) {
           await page.setContent(parse?.text?.['*']);
-          const img = await page.screenshot({ fullPage: 1 });
+          const img = await page.screenshot({ fullPage: true });
           await page.close();
           return segment.image(img);
         }
 
-        const { data } = await page.goto(
-          getUrl(mwApi, { title: 'special:blankpage' }),
-        );
-        const $ = cheerio.load(data);
+        await page.goto(getUrl(mwApi, { title: 'special:blankpage' }));
+        const $ = cheerio.load(parse?.text?.['*'] || '');
         await page.evaluate((parse) => {
-          // eslint-disable-next-line no-undef
           $('h1').text(parse?.title);
-          // eslint-disable-next-line no-undef
           $('#mw-content-text').html(parse?.text?.['*']);
-          // eslint-disable-next-line no-undef
           $('#mw-content-text').append(
             '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>',
           );
         }, parse);
-        const img = await page.screenshot({ fullPage: 1 });
+        const img = await page.screenshot({ fullPage: true });
         await page.close();
 
         return segment.image(img);
@@ -313,7 +322,7 @@ module.exports.apply = (ctx) => {
       const page = await ctx.puppeteer.page();
       try {
         await page.goto(getUrl(mwApi, { title }));
-        const img = await page.screenshot({ fullPage: 1 });
+        const img = await page.screenshot({ fullPage: true });
         await page.close();
         return segment.image(img);
       } catch (e) {

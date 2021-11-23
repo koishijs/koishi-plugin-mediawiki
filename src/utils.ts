@@ -1,6 +1,7 @@
-const Mwbot = require('mwbot');
+import { Session } from 'koishi-core';
+import Mwbot from 'mwbot';
 
-export function getBot(session) {
+export function getBot(session: Session<never, 'mwApi'>): any {
   const apiUrl = session?.channel?.mwApi || '';
   if (!apiUrl) return null;
   return new Mwbot({
@@ -8,7 +9,7 @@ export function getBot(session) {
   });
 }
 
-export function getUrl(base, params = {}, script = 'index') {
+export function getUrl(base: string, params = {}, script = 'index'): string {
   let query = '';
   if (Object.keys(params).length) {
     query = '?' + new URLSearchParams(params);
@@ -19,8 +20,8 @@ export function getUrl(base, params = {}, script = 'index') {
   )}${query}`;
 }
 
-export function isValidApi(api) {
-  let url;
+export function isValidApi(api: string | URL): boolean {
+  let url: URL;
   try {
     url = new URL(api);
   } catch (err) {
@@ -33,7 +34,7 @@ export function isValidApi(api) {
   return false;
 }
 
-export function resolveBrackets(str) {
+export function resolveBrackets(str: string): string {
   return str
     .replace(new RegExp('&#91;', 'g'), '[')
     .replace(new RegExp('&#93;', 'g'), ']');
