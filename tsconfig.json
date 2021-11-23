@@ -12,6 +12,7 @@
     "esModuleInterop": true,
     "moduleResolution": "node",
     "strictBindCallApply": true,
+    "strict":true,
   },
   "include": [
     "*.ts",

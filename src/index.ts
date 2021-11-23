@@ -34,14 +34,12 @@ export const apply = (ctx: Context): void => {
     .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
     .action(async ({ session, options }, title = '') => {
+      if (!session?.channel) throw new Error();
       const { mwApi } = session.channel;
-      if (!mwApi) return options.quiet ? '' : session.execute('wiki.link');
+      if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link');
       const bot = getBot(session);
       if (!title) return getUrl(mwApi);
-      let anchor =
-        title.split('#').length >= 2
-          ? '#' + encodeURI(title.split('#').pop())
-          : '';
+      let anchor = '#' + encodeURI(title.split('#').pop() || '');
       const { query, error } = await bot.request({
         action: 'query',
         formatversion: 2,
@@ -83,8 +81,10 @@ export const apply = (ctx: Context): void => {
         const dangerPageNames = ['Mypage', 'Mytalk'];
         // 获取全部别名
         const dangerPages = specialpagealiases
-          .filter(({ realname }) => dangerPageNames.includes(realname))
-          .map(({ aliases }) => aliases)
+          .filter((spAlias: { realname: string }) =>
+            dangerPageNames.includes(spAlias.realname),
+          )
+          .map((spAlias: { aliases: string }) => spAlias.aliases)
           .flat(Infinity);
         // 获取本地特殊名字空间的标准名称
         const specialNsName = namespaces['-1'].name;
@@ -145,7 +145,7 @@ export const apply = (ctx: Context): void => {
           msg.push(getUrl(mwApi, { curid: pageid }) + anchor);
 
           // Page Details
-          if (options.details) {
+          if (options?.details) {
             const { parse } = await bot.request({
               action: 'parse',
               pageid,
@@ -170,7 +170,7 @@ export const apply = (ctx: Context): void => {
           }
         }
       }
-      return segment('quote', { id: session.messageId }) + msg.join('\n');
+      return segment('quote', { id: session.messageId || '' }) + msg.join('\n');
     });
 
   // @command wiki.link
@@ -180,6 +180,7 @@ export const apply = (ctx: Context): void => {
     })
     .channelFields(['mwApi'])
     .action(async ({ session }, api) => {
+      if (!session?.channel) throw new Error();
       const { channel } = session;
       if (!api) {
         return channel.mwApi
@@ -199,6 +200,7 @@ export const apply = (ctx: Context): void => {
     .command('wiki.search <search:text>', '通过名称搜索页面')
     .channelFields(['mwApi'])
     .action(async ({ session }, search) => {
+      if (!session?.send) throw new Error();
       if (!search) {
         session.send('要搜索什么呢？(输入空行或句号取消)');
         search = (await session.prompt(30 * 1000)).trim();
@@ -221,7 +223,7 @@ export const apply = (ctx: Context): void => {
         return `关键词“${search}”没有匹配结果。`;
       }
 
-      results.forEach((item, index) => {
+      results.forEach((item: string, index: number) => {
         msg.push(`${index + 1}. ${item}`);
       });
       msg.push('请输入想查看的页面编号。');
@@ -235,16 +237,13 @@ export const apply = (ctx: Context): void => {
 
   // Shortcut
   ctx.middleware(async (session, next) => {
+    if (!session.content) throw new Error();
     await next();
     const content = resolveBrackets(session.content);
     const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g;
-    let matched = [];
-    let titles: string[] = [];
-    while ((matched = linkReg.exec(content)) !== null) {
-      titles.push(matched[1]);
-    }
-    /** @type {string[]} */
-    titles = Array.from(new Set(titles));
+    // let matched = [];
+    const matched = [...content.matchAll(linkReg)].map((m) => m[1]);
+    const titles = [...new Set(matched)];
     if (!titles.length) return;
     ctx.logger('wiki').info('titles', titles);
     const msg = await Promise.all(
@@ -263,6 +262,7 @@ export const apply = (ctx: Context): void => {
     .option('pure', '-p 纯净模式')
     .channelFields(['mwApi'])
     .action(async ({ session, options }, text = '') => {
+      if (!session?.channel) throw new Error();
       if (!text) return '';
       if (!ctx.puppeteer) return '错误：未找到 puppeteer。';
       text = resolveBrackets(text);
@@ -272,7 +272,7 @@ export const apply = (ctx: Context): void => {
 
       const { parse, error } = await bot.request({
         action: 'parse',
-        title: options.title,
+        title: options?.title,
         text,
         pst: 1,
         disableeditsection: 1,
@@ -286,7 +286,7 @@ export const apply = (ctx: Context): void => {
       const page = await ctx.puppeteer.page();
 
       try {
-        if (options.pure) {
+        if (options?.pure) {
           await page.setContent(parse?.text?.['*']);
           const img = await page.screenshot({ fullPage: true });
           await page.close();
@@ -316,6 +316,7 @@ export const apply = (ctx: Context): void => {
     .command('wiki.shot [title]', 'screenshot', { authority: 2 })
     .channelFields(['mwApi'])
     .action(async ({ session }, title) => {
+      if (!session?.channel) throw new Error();
       const { mwApi } = session.channel;
       if (!mwApi) return 'Missing api endpoint';
       if (!ctx.puppeteer) return 'Missing puppeteer';

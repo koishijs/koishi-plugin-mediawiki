@@ -1,6 +1,9 @@
 import { Session } from 'koishi-core';
-import Mwbot from 'mwbot';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Mwbot = require('mwbot');
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getBot(session: Session<never, 'mwApi'>): any {
   const apiUrl = session?.channel?.mwApi || '';
   if (!apiUrl) return null;
