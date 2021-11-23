@@ -5,13 +5,11 @@
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
+
+import {getBot, getUrl, isValidApi, resolveBrackets} from './utils';
+
 const cheerio = require('cheerio')
 const { segment } = require('koishi-utils')
-
-const getBot = require('./getBot')
-const isValidApi = require('./isValidApi')
-const getUrl = require('./getUrl')
-const resolveBrackets = require('./resolveBrackets')
 
 module.exports.name = 'mediawiki'
 
