@@ -294,7 +294,6 @@ export const apply = (ctx: Context): void => {
         }
 
         await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
-        const $ = cheerio.load(parse?.text?.['*'] || '')
         await page.evaluate((parse) => {
           $('h1').text(parse?.title)
           $('#mw-content-text').html(parse?.text?.['*'])
