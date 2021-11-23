@@ -17,7 +17,7 @@ export function getBot(session: Session<never, 'mwApi'>): any {
   const bot = new Mwbot({ apiUrl });
   if (USE_MOCK_HEADER.some((sub) => apiUrl.includes(sub)))
     bot.globalRequestOptions.headers = MOCK_HEADER;
-  return bot
+  return bot;
 }
 
 export function getUrl(base: string, params = {}, script = 'index'): string {
