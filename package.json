@@ -2,9 +2,16 @@
   "name": "koishi-plugin-mediawiki",
   "version": "0.1.0",
   "description": "MediaWiki for koishijs",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "bump": "bump"
+    "bump": "bump",
+    "lint": "eslint . --fix",
+    "build": "tsc",
+    "watch": "tsc --watch"
   },
   "dependencies": {
     "axios": "^0.21.1",
@@ -14,7 +21,9 @@
   },
   "devDependencies": {
     "@dragon-fish/bump": "^0.0.15",
-    "koishi-core": "^3.10.2"
+    "@types/jquery": "^3.5.9",
+    "koishi-core": "^3.10.2",
+    "typescript": "^4.5.2"
   },
   "peerDependencies": {
     "koishi-core": "^3.7.0"

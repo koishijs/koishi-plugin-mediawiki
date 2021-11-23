@@ -8,10 +8,10 @@
 const cheerio = require('cheerio')
 const { segment } = require('koishi-utils')
 
-const getBot = require('./module/getBot')
-const isValidApi = require('./util/isValidApi')
-const getUrl = require('./util/getUrl')
-const resolveBrackets = require('./util/resolveBrackets')
+const getBot = require('./getBot')
+const isValidApi = require('./isValidApi')
+const getUrl = require('./getUrl')
+const resolveBrackets = require('./resolveBrackets')
 
 module.exports.name = 'mediawiki'
 
@@ -281,7 +281,9 @@ module.exports.apply = (ctx) => {
           return segment.image(img)
         }
 
-        await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
+
+        const { data } = await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
+        const $ = cheerio.load(data);
         await page.evaluate((parse) => {
           // eslint-disable-next-line no-undef
           $('h1').text(parse?.title)
