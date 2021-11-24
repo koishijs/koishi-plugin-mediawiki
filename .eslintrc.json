@@ -19,6 +19,7 @@
   "plugins": [
     "@typescript-eslint"
   ],
+  "root":true,
   "rules": {
     "@typescript-eslint/explicit-function-return-type": 1
     // "@typescript-eslint/no-explicit-any": 0

@@ -7,7 +7,7 @@
  */
 
 import cheerio from 'cheerio'
-import { Context, Tables } from 'koishi-core'
+import { Context, Tables, Session } from 'koishi-core'
 import {} from 'koishi-plugin-puppeteer'
 import { segment } from 'koishi-utils'
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
@@ -25,14 +25,77 @@ Tables.extend('channel', {
 
 export const name = 'mediawiki'
 
-export const apply = (ctx: Context): void => {
+type ConfigStrict = {
+  /** wikilink 到不存在的页面时是否自动进行搜索 */
+  searchNonExist: boolean
+  wikiAuthority: number
+  linkAuthority: number
+  searchAuthority: number
+  parseAuthority: number
+  parseMinInterval: number
+  shotAuthority: number
+}
+const defaultConfig = {
+  searchNonExist: false,
+  wikiAuthority: 1,
+  linkAuthority: 2,
+  searchAuthority: 1,
+  parseAuthority: 3,
+  parseMinInterval: 10 * 1000,
+  shotAuthority: 2,
+}
+export type Config = Partial<ConfigStrict>
+
+async function searchWiki(
+  session: Session<never, 'mwApi'>,
+  search: string | undefined,
+): Promise<string | undefined> {
+  if (!search) {
+    session.send('要搜索什么呢？(输入空行或句号取消)')
+    search = (await session.prompt(30 * 1000)).trim()
+    if (!search || search === '.' || search === '。') return ''
+  }
+  const bot = getBot(session)
+  if (!bot) return session.execute('wiki.link')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [keyword, results, summarys, links] = await bot.request({
+    action: 'opensearch',
+    format: 'json',
+    search,
+    redirects: 'resolve',
+    limit: 3,
+  })
+
+  const msg = []
+
+  if (results.length < 1) {
+    return `关键词“${search}”没有匹配结果。`
+  }
+
+  results.forEach((item: string, index: number) => {
+    msg.push(`${index + 1}. ${item}`)
+  })
+  msg.push('请输入想查看的页面编号。')
+
+  await session.send(msg.join('\n'))
+  const answer = parseInt(await session.prompt(30 * 1000))
+  if (!isNaN(answer) && results[answer - 1]) {
+    session.execute('wiki --details ' + results[answer - 1])
+  }
+}
+
+export const apply = (ctx: Context, configPartial: Config): void => {
+  const config: ConfigStrict = { ...defaultConfig, ...configPartial }
   // @command wiki
   ctx
-    .command('wiki [title:text]', 'MediaWiki 相关功能', {})
+    .command('wiki [title:text]', 'MediaWiki 相关功能', {
+      authority: config.wikiAuthority,
+    })
     .example('wiki 页面 - 获取页面链接')
     .channelFields(['mwApi'])
     .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
+    .option('search', '-s 如果页面不存在就进行搜索', { type: 'boolean' })
     .action(async ({ session, options }, title = '') => {
       if (!session?.channel) throw new Error()
       const { mwApi } = session.channel
@@ -68,6 +131,8 @@ export const apply = (ctx: Context): void => {
         namespaces,
       } = query
       const msg = []
+      let fullbackSearch = false
+
       let pages = rawPages
       let redirects = rawRedirects
       if (interwiki && interwiki.length) {
@@ -140,7 +205,12 @@ export const apply = (ctx: Context): void => {
             })}${anchor} (${missing ? '不存在的' : ''}特殊页面)`,
           )
         } else if (missing !== undefined) {
-          msg.push(`${editurl} (页面不存在)`)
+          if (!options?.search) {
+            msg.push(`${editurl} (页面不存在)`)
+          } else {
+            msg.push(`${editurl} (页面不存在，以下是搜索结果)`)
+            fullbackSearch = true
+          }
         } else {
           msg.push(getUrl(mwApi, { curid: pageid }) + anchor)
 
@@ -170,13 +240,21 @@ export const apply = (ctx: Context): void => {
           }
         }
       }
-      return segment('quote', { id: session.messageId || '' }) + msg.join('\n')
+      const result =
+        segment('quote', { id: session.messageId || '' }) + msg.join('\n')
+      if (fullbackSearch) {
+        await session.send(result)
+        const searchResult = await searchWiki(session, title)
+        if (searchResult) session.send(searchResult)
+        return
+      }
+      return result
     })
 
   // @command wiki.link
   ctx
     .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接', {
-      authority: 2,
+      authority: config.linkAuthority,
     })
     .channelFields(['mwApi'])
     .action(async ({ session }, api) => {
@@ -197,42 +275,13 @@ export const apply = (ctx: Context): void => {
 
   // @command wiki.search
   ctx
-    .command('wiki.search <search:text>', '通过名称搜索页面')
+    .command('wiki.search <search:text>', '通过名称搜索页面', {
+      authority: config.searchAuthority,
+    })
     .channelFields(['mwApi'])
     .action(async ({ session }, search) => {
       if (!session?.send) throw new Error()
-      if (!search) {
-        session.send('要搜索什么呢？(输入空行或句号取消)')
-        search = (await session.prompt(30 * 1000)).trim()
-        if (!search || search === '.' || search === '。') return ''
-      }
-      const bot = getBot(session)
-      if (!bot) return session.execute('wiki.link')
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const [keyword, results, summarys, links] = await bot.request({
-        action: 'opensearch',
-        format: 'json',
-        search,
-        redirects: 'resolve',
-        limit: 3,
-      })
-
-      const msg = []
-
-      if (results.length < 1) {
-        return `关键词“${search}”没有匹配结果。`
-      }
-
-      results.forEach((item: string, index: number) => {
-        msg.push(`${index + 1}. ${item}`)
-      })
-      msg.push('请输入想查看的页面编号。')
-
-      await session.send(msg.join('\n'))
-      const answer = parseInt(await session.prompt(30 * 1000))
-      if (!isNaN(answer) && results[answer - 1]) {
-        session.execute('wiki --details ' + results[answer - 1])
-      }
+      return await searchWiki(session, search)
     })
 
   // Shortcut
@@ -246,8 +295,11 @@ export const apply = (ctx: Context): void => {
     const titles = [...new Set(matched)]
     if (!titles.length) return
     ctx.logger('wiki').info('titles', titles)
+    const optionS = config.searchNonExist && titles.length == 1 ? '-s' : ''
     const msg = await Promise.all(
-      titles.map(async (i) => await session.execute(`wiki -q ${i}`, true)),
+      titles.map(
+        async (i) => await session.execute(`wiki -q ${optionS} ${i}`, true),
+      ),
     )
     session.send(msg.join('\n----\n'))
   })
@@ -255,8 +307,8 @@ export const apply = (ctx: Context): void => {
   // parse
   ctx
     .command('wiki.parse <text:text>', '解析 wiki 标记文本', {
-      minInterval: 10 * 1000,
-      authority: 3,
+      minInterval: config.parseMinInterval,
+      authority: config.parseAuthority,
     })
     .option('title', '-t <title:string> 用于渲染的页面标题')
     .option('pure', '-p 纯净模式')
@@ -312,7 +364,9 @@ export const apply = (ctx: Context): void => {
     })
 
   ctx
-    .command('wiki.shot [title]', 'screenshot', { authority: 2 })
+    .command('wiki.shot [title]', 'screenshot', {
+      authority: config.shotAuthority,
+    })
     .channelFields(['mwApi'])
     .action(async ({ session }, title) => {
       if (!session?.channel) throw new Error()
