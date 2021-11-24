@@ -5,21 +5,27 @@
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
-const cheerio = require('cheerio')
-const { segment } = require('koishi-utils')
 
-const getBot = require('./module/getBot')
-const isValidApi = require('./util/isValidApi')
-const getUrl = require('./util/getUrl')
-const resolveBrackets = require('./util/resolveBrackets')
+import cheerio from 'cheerio'
+import { Context, Tables } from 'koishi-core'
+import {} from 'koishi-plugin-puppeteer'
+import { segment } from 'koishi-utils'
+import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
 
-module.exports.name = 'mediawiki'
+declare module 'koishi-core' {
+  interface Channel {
+    mwApi?: string
+  }
+}
+Tables.extend('channel', {
+  fields: {
+    mwApi: 'string',
+  },
+})
 
-/**
- * @param {import('koishi-core').Context} ctx
- * @param {*} pOptions
- */
-module.exports.apply = (ctx) => {
+export const name = 'mediawiki'
+
+export const apply = (ctx: Context): void => {
   // @command wiki
   ctx
     .command('wiki [title:text]', 'MediaWiki 相关功能', {})
@@ -28,14 +34,12 @@ module.exports.apply = (ctx) => {
     .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
     .action(async ({ session, options }, title = '') => {
+      if (!session?.channel) throw new Error()
       const { mwApi } = session.channel
-      if (!mwApi) return options.quiet ? '' : session.execute('wiki.link')
+      if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link')
       const bot = getBot(session)
       if (!title) return getUrl(mwApi)
-      let anchor =
-        title.split('#').length >= 2
-          ? '#' + encodeURI(title.split('#').pop())
-          : ''
+      let anchor = '#' + encodeURI(title.split('#').pop() || '')
       const { query, error } = await bot.request({
         action: 'query',
         formatversion: 2,
@@ -56,10 +60,16 @@ module.exports.apply = (ctx) => {
 
       if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`
 
-      let { redirects, pages, interwiki, specialpagealiases, namespaces } =
-        query
+      const {
+        redirects: rawRedirects,
+        pages: rawPages,
+        interwiki,
+        specialpagealiases,
+        namespaces,
+      } = query
       const msg = []
-
+      let pages = rawPages
+      let redirects = rawRedirects
       if (interwiki && interwiki.length) {
         msg.push(`跨语言链接：${interwiki?.[0]?.url}${anchor}`)
       } else {
@@ -71,8 +81,10 @@ module.exports.apply = (ctx) => {
         const dangerPageNames = ['Mypage', 'Mytalk']
         // 获取全部别名
         const dangerPages = specialpagealiases
-          .filter(({ realname }) => dangerPageNames.includes(realname))
-          .map(({ aliases }) => aliases)
+          .filter((spAlias: { realname: string }) =>
+            dangerPageNames.includes(spAlias.realname),
+          )
+          .map((spAlias: { aliases: string }) => spAlias.aliases)
           .flat(Infinity)
         // 获取本地特殊名字空间的标准名称
         const specialNsName = namespaces['-1'].name
@@ -83,7 +95,7 @@ module.exports.apply = (ctx) => {
           redirects[0].from.split(':').shift() === specialNsName &&
           // 被标记为危险页面
           dangerPages.includes(
-            redirects[0].from.split(':').pop().split('/').shift()
+            redirects[0].from.split(':').pop().split('/').shift(),
           )
         ) {
           // 覆写页面资料
@@ -98,7 +110,7 @@ module.exports.apply = (ctx) => {
           redirects = undefined
         }
 
-        ctx.logger('wiki').info({ pages })
+        ctx.logger('wiki').debug({ pages })
         const thisPage = pages[0]
         const {
           pageid,
@@ -115,7 +127,7 @@ module.exports.apply = (ctx) => {
         if (redirects && redirects.length > 0) {
           const { from, to, tofragment } = redirects[0]
           msg.push(
-            `重定向：[${from}] → [${to}${tofragment ? '#' + tofragment : ''}]`
+            `重定向：[${from}] → [${to}${tofragment ? '#' + tofragment : ''}]`,
           )
           if (tofragment) anchor = '#' + encodeURI(tofragment)
         }
@@ -125,7 +137,7 @@ module.exports.apply = (ctx) => {
           msg.push(
             `${getUrl(mwApi, {
               title: pagetitle,
-            })}${anchor} (${missing ? '不存在的' : ''}特殊页面)`
+            })}${anchor} (${missing ? '不存在的' : ''}特殊页面)`,
           )
         } else if (missing !== undefined) {
           msg.push(`${editurl} (页面不存在)`)
@@ -133,7 +145,7 @@ module.exports.apply = (ctx) => {
           msg.push(getUrl(mwApi, { curid: pageid }) + anchor)
 
           // Page Details
-          if (options.details) {
+          if (options?.details) {
             const { parse } = await bot.request({
               action: 'parse',
               pageid,
@@ -148,17 +160,17 @@ module.exports.apply = (ctx) => {
             const extract = $contents.text().trim() || ''
             ctx
               .logger('mediawiki')
-              .info({ html: parse.text, $contents, extract })
+              .debug({ html: parse.text, $contents, extract })
             // const extract = parse?.wikitext?.['*'] || ''
             if (extract) {
               msg.push(
-                extract.length > 150 ? extract.slice(0, 150) + '...' : extract
+                extract.length > 150 ? extract.slice(0, 150) + '...' : extract,
               )
             }
           }
         }
       }
-      return segment('quote', { id: session.messageId }) + msg.join('\n')
+      return segment('quote', { id: session.messageId || '' }) + msg.join('\n')
     })
 
   // @command wiki.link
@@ -168,6 +180,7 @@ module.exports.apply = (ctx) => {
     })
     .channelFields(['mwApi'])
     .action(async ({ session }, api) => {
+      if (!session?.channel) throw new Error()
       const { channel } = session
       if (!api) {
         return channel.mwApi
@@ -187,6 +200,7 @@ module.exports.apply = (ctx) => {
     .command('wiki.search <search:text>', '通过名称搜索页面')
     .channelFields(['mwApi'])
     .action(async ({ session }, search) => {
+      if (!session?.send) throw new Error()
       if (!search) {
         session.send('要搜索什么呢？(输入空行或句号取消)')
         search = (await session.prompt(30 * 1000)).trim()
@@ -194,7 +208,7 @@ module.exports.apply = (ctx) => {
       }
       const bot = getBot(session)
       if (!bot) return session.execute('wiki.link')
-      // eslint-disable-next-line no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const [keyword, results, summarys, links] = await bot.request({
         action: 'opensearch',
         format: 'json',
@@ -209,7 +223,7 @@ module.exports.apply = (ctx) => {
         return `关键词“${search}”没有匹配结果。`
       }
 
-      results.forEach((item, index) => {
+      results.forEach((item: string, index: number) => {
         msg.push(`${index + 1}. ${item}`)
       })
       msg.push('请输入想查看的页面编号。')
@@ -223,20 +237,17 @@ module.exports.apply = (ctx) => {
 
   // Shortcut
   ctx.middleware(async (session, next) => {
+    if (!session.content) throw new Error()
     await next()
     const content = resolveBrackets(session.content)
     const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g
-    let matched = []
-    let titles = []
-    while ((matched = linkReg.exec(content)) !== null) {
-      titles.push(matched[1])
-    }
-    /** @type {string[]} */
-    titles = Array.from(new Set(titles))
+    // let matched = [];
+    const matched = [...content.matchAll(linkReg)].map((m) => m[1])
+    const titles = [...new Set(matched)]
     if (!titles.length) return
     ctx.logger('wiki').info('titles', titles)
     const msg = await Promise.all(
-      titles.map(async (i) => await session.execute(`wiki -q ${i}`, true))
+      titles.map(async (i) => await session.execute(`wiki -q ${i}`, true)),
     )
     session.send(msg.join('\n----\n'))
   })
@@ -251,6 +262,7 @@ module.exports.apply = (ctx) => {
     .option('pure', '-p 纯净模式')
     .channelFields(['mwApi'])
     .action(async ({ session, options }, text = '') => {
+      if (!session?.channel) throw new Error()
       if (!text) return ''
       if (!ctx.puppeteer) return '错误：未找到 puppeteer。'
       text = resolveBrackets(text)
@@ -260,7 +272,7 @@ module.exports.apply = (ctx) => {
 
       const { parse, error } = await bot.request({
         action: 'parse',
-        title: options.title,
+        title: options?.title,
         text,
         pst: 1,
         disableeditsection: 1,
@@ -274,25 +286,22 @@ module.exports.apply = (ctx) => {
       const page = await ctx.puppeteer.page()
 
       try {
-        if (options.pure) {
+        if (options?.pure) {
           await page.setContent(parse?.text?.['*'])
-          const img = await page.screenshot({ fullPage: 1 })
+          const img = await page.screenshot({ fullPage: true })
           await page.close()
           return segment.image(img)
         }
 
         await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
         await page.evaluate((parse) => {
-          // eslint-disable-next-line no-undef
           $('h1').text(parse?.title)
-          // eslint-disable-next-line no-undef
           $('#mw-content-text').html(parse?.text?.['*'])
-          // eslint-disable-next-line no-undef
           $('#mw-content-text').append(
-            '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>'
+            '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>',
           )
         }, parse)
-        const img = await page.screenshot({ fullPage: 1 })
+        const img = await page.screenshot({ fullPage: true })
         await page.close()
 
         return segment.image(img)
@@ -306,13 +315,14 @@ module.exports.apply = (ctx) => {
     .command('wiki.shot [title]', 'screenshot', { authority: 2 })
     .channelFields(['mwApi'])
     .action(async ({ session }, title) => {
+      if (!session?.channel) throw new Error()
       const { mwApi } = session.channel
       if (!mwApi) return 'Missing api endpoint'
       if (!ctx.puppeteer) return 'Missing puppeteer'
       const page = await ctx.puppeteer.page()
       try {
         await page.goto(getUrl(mwApi, { title }))
-        const img = await page.screenshot({ fullPage: 1 })
+        const img = await page.screenshot({ fullPage: true })
         await page.close()
         return segment.image(img)
       } catch (e) {
