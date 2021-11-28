@@ -10,7 +10,7 @@
   "scripts": {
     "bump": "bump",
     "lint": "eslint . --fix",
-    "build": "tsc",
+    "build": "tsc --build --force",
     "watch": "tsc --watch"
   },
   "dependencies": {

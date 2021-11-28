@@ -102,7 +102,9 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link')
       const bot = getBot(session)
       if (!title) return getUrl(mwApi)
-      let anchor = '#' + encodeURI(title.split('#').pop() || '')
+      let anchor = ''
+      if (title.split('#').length > 1)
+        anchor = '#' + encodeURI(title.split('#')[1] || '')
       const { query, error } = await bot.request({
         action: 'query',
         formatversion: 2,
@@ -286,7 +288,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
 
   // Shortcut
   ctx.middleware(async (session, next) => {
-    if (!session.content) throw new Error()
+    if (!session.content) return next()
     await next()
     const content = resolveBrackets(session.content)
     const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g
