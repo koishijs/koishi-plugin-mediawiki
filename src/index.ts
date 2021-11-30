@@ -7,7 +7,7 @@
  */
 
 import cheerio from 'cheerio'
-import { Context, Tables, Session } from 'koishi-core'
+import { Context, Session, Tables } from 'koishi-core'
 import {} from 'koishi-plugin-puppeteer'
 import { segment } from 'koishi-utils'
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
@@ -51,7 +51,7 @@ async function searchWiki(
   search: string | undefined,
 ): Promise<string | undefined> {
   if (!search) {
-    session.send('要搜索什么呢？(输入空行或句号取消)')
+    session.sendQueued('要搜索什么呢？(输入空行或句号取消)')
     search = (await session.prompt(30 * 1000)).trim()
     if (!search || search === '.' || search === '。') return ''
   }
@@ -76,8 +76,8 @@ async function searchWiki(
     msg.push(`${index + 1}. ${item}`)
   })
   msg.push('请输入想查看的页面编号。')
+  await session.sendQueued(msg.join('\n'))
 
-  await session.send(msg.join('\n'))
   const answer = parseInt(await session.prompt(30 * 1000))
   if (!isNaN(answer) && results[answer - 1]) {
     session.execute('wiki --details ' + results[answer - 1])
@@ -245,9 +245,9 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       const result =
         segment('quote', { id: session.messageId || '' }) + msg.join('\n')
       if (fullbackSearch) {
-        await session.send(result)
+        await session.sendQueued(result)
         const searchResult = await searchWiki(session, title)
-        if (searchResult) session.send(searchResult)
+        if (searchResult) session.sendQueued(searchResult)
         return
       }
       return result
