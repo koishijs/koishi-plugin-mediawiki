@@ -214,7 +214,8 @@ export const apply = (ctx: Context, configPartial: Config): void => {
             fullbackSearch = true
           }
         } else {
-          msg.push(getUrl(mwApi, { curid: pageid }) + anchor)
+          const pageUrl = getUrl(mwApi, { curid: pageid })
+          msg.push(pageUrl + anchor)
 
           // Page Details
           if (options?.details) {
@@ -239,6 +240,15 @@ export const apply = (ctx: Context, configPartial: Config): void => {
                 extract.length > 150 ? extract.slice(0, 150) + '...' : extract,
               )
             }
+
+            // get infobox shot
+            let img = ''
+            try {
+              img = await getInfobox(ctx, pageUrl)
+            } catch (e) {
+              ctx.logger('mediawiki').warn(e)
+            }
+            if (img) msg.push(img)
           }
         }
       }
@@ -386,4 +396,37 @@ export const apply = (ctx: Context, configPartial: Config): void => {
         return `Shot failed: ${e}`
       }
     })
+}
+
+const infoboxSelector: Record<string, string> = {
+  'fandom.com': 'aside.portable-infobox',
+  'huijiwiki.com': 'table.infobox',
+}
+
+async function getInfobox(ctx: Context, url: string): Promise<string> {
+  if (!ctx.puppeteer) throw new Error('Missing puppeteer')
+  const host = new URL(url).host
+  let selector = ''
+  for (const site in infoboxSelector) {
+    if (host.endsWith(site)) {
+      selector = infoboxSelector[site]
+      break
+    }
+  }
+  if (!selector) throw new Error('Missing infobox selector')
+  const page = await ctx.puppeteer.page()
+  await page.goto(url)
+  await page.waitForSelector(selector)
+  await page.waitForSelector(`${selector} img`)
+  await page.waitForNetworkIdle()
+  await page.evaluate((selector) => {
+    $(selector).siblings().hide()
+    $(selector).parents().siblings().hide()
+    $(selector).show()
+  }, selector)
+  const infobox = await page.$(selector)
+  if (!infobox) throw new Error(`Can not find infobox ${selector} on ${url}`)
+  const image = await infobox.screenshot()
+  await page.close()
+  return segment.image(image)
 }
