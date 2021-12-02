@@ -1,5 +1,3 @@
-import { Session } from 'koishi-core'
-
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const Mwbot = require('mwbot')
 
@@ -10,8 +8,7 @@ const MOCK_HEADER = {
 const USE_MOCK_HEADER = ['huijiwiki.com']
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getBot(session: Session<never, 'mwApi'>): any {
-  const apiUrl = session?.channel?.mwApi || ''
+export function getBot(apiUrl: string): any {
   if (!apiUrl) return null
 
   const bot = new Mwbot({ apiUrl })

@@ -37,5 +37,9 @@
   },
   "repository": "https://github.com/koishijs/koishi-plugin-mediawiki",
   "author": "Dragon-Fish <824399619@qq.com>",
+  "contributors": [
+    "Dragon-Fish <824399619@qq.com>",
+    "DDElephant <andy-ding@outlook.com>"
+  ],
   "license": "Apache-2.0"
 }
