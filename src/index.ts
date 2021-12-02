@@ -218,13 +218,14 @@ export const apply = (ctx: Context, configPartial: Config): void => {
             }
 
             // get infobox shot
-            let img = ''
-            try {
-              img = await getInfobox(ctx, pageUrl)
-            } catch (e) {
-              ctx.logger('mediawiki').warn(e)
-            }
-            if (img) msg.push(img)
+
+            getInfobox(ctx, pageUrl)
+              .then((img) => {
+                session.sendQueued(img)
+              })
+              .catch((e) => {
+                logger.warn(e)
+              })
           }
         }
       } catch (e) {
@@ -458,11 +459,11 @@ async function getInfobox(ctx: Context, url: string): Promise<string> {
     page.setViewport({
       width: 640,
       height: 480,
-      deviceScaleFactor: 2,
+      deviceScaleFactor: 1.5,
     })
     await page.setContent(html)
+    await page.waitForSelector(selector)
     await page.waitForNetworkIdle()
-
     const infobox = await page.$(selector)
     if (!infobox) throw new Error()
     const image = await infobox.screenshot()
