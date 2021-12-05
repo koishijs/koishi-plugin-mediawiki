@@ -7,15 +7,15 @@
  * @license Apache-2.0
  */
 
+import {} from '@koishijs/plugin-puppeteer'
 import axios from 'axios'
 import cheerio, { SelectorType } from 'cheerio'
-import { Context, Session, Tables, Channel, User } from 'koishi-core'
-import {} from 'koishi-plugin-puppeteer'
-import { Logger, segment } from 'koishi-utils'
+import { Channel, Context, Session, Tables, User } from 'koishi'
+import { Logger, segment } from '@koishijs/utils'
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
 const logger = new Logger('wiki')
 
-declare module 'koishi-core' {
+declare module 'koishi' {
   interface Channel {
     mwApi?: string
     mwFlag?: number
@@ -27,21 +27,15 @@ declare module 'koishi-core' {
 }
 
 Tables.extend('channel', {
-  fields: {
-    mwApi: 'string',
-    mwFlag: {
-      type: 'unsigned',
-      nullable: true,
-    },
+  mwApi: 'string',
+  mwFlag: {
+    type: 'unsigned',
   },
 })
 Tables.extend('user', {
-  fields: {
-    mwApi: 'string',
-    mwFlag: {
-      type: 'unsigned',
-      nullable: true,
-    },
+  mwApi: 'string',
+  mwFlag: {
+    type: 'unsigned',
   },
 })
 
@@ -300,7 +294,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接')
     .userFields(['mwApi', 'authority'])
     .channelFields(['mwApi'])
-    .check(({ session }, api) => {
+    .before(({ session }, api) => {
       if (!api) return
       const auth = session?.user?.authority
       if (auth === undefined) return '无法获取当前用户权限'
@@ -340,11 +334,11 @@ export const apply = (ctx: Context, configPartial: Config): void => {
         const oldApi = userOrChannel.mwApi
         if (!oldApi) return `${here}未连接到 MediaWiki 网站。`
         userOrChannel.mwApi = ''
-        await userOrChannel._update()
+        await userOrChannel.$update()
         return `${here}已清除与 ${oldApi} 的连接`
       } else if (isValidApi(api)) {
         userOrChannel.mwApi = api
-        await userOrChannel._update()
+        await userOrChannel.$update()
         return session.execute('wiki.link')
       } else {
         return '输入的不是合法 api.php 网址。'
@@ -357,7 +351,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     .option('search', '-s 切换是否自动搜索', { type: 'boolean' })
     .userFields(['authority', 'mwFlag'])
     .channelFields(['mwFlag'])
-    .check(({ session }) => {
+    .before(({ session }) => {
       const auth = session?.user?.authority
       if (auth === undefined) return '无法获取当前用户权限'
 

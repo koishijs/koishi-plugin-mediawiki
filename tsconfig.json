@@ -5,17 +5,15 @@
     "module": "commonjs",
     "target": "esnext",
     "declaration": true,
-    // "emitDeclarationOnly": true,
     "composite": true,
     "incremental": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "moduleResolution": "node",
     "strictBindCallApply": true,
-    "strict":true,
+    "strict": true,
   },
   "include": [
-    "*.ts",
     "src/**/*.ts"
   ]
 }
