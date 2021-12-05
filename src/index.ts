@@ -9,7 +9,7 @@
 
 import axios from 'axios'
 import cheerio, { SelectorType } from 'cheerio'
-import { Context, Session, Tables } from 'koishi-core'
+import { Context, Session, Tables, Channel, User } from 'koishi-core'
 import {} from 'koishi-plugin-puppeteer'
 import { Logger, segment } from 'koishi-utils'
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
@@ -18,31 +18,48 @@ const logger = new Logger('wiki')
 declare module 'koishi-core' {
   interface Channel {
     mwApi?: string
+    mwFlag?: number
   }
   interface User {
     mwApi?: string
+    mwFlag?: number
   }
 }
 
 Tables.extend('channel', {
   fields: {
     mwApi: 'string',
+    mwFlag: {
+      type: 'unsigned',
+      nullable: true,
+    },
   },
 })
 Tables.extend('user', {
   fields: {
     mwApi: 'string',
+    mwFlag: {
+      type: 'unsigned',
+      nullable: true,
+    },
   },
 })
 
 export const name = 'mediawiki'
 
+export enum Flags {
+  /** wikilink 到不存在的页面时是否自动进行搜索*/
+  searchNonExist = 1,
+  /** 获取详情时，同时获取信息框 */
+  infoboxDetails = 2,
+}
+
 type ConfigStrict = {
   /**
-   * wikilink 到不存在的页面时是否自动进行搜索
-   * @default false
+   * 默认 flag
+   * @default 0
    */
-  searchNonExist: boolean
+  defaultFlag: number
   wikiAuthority: number
   /**
    * 修改群聊环境下 wiki 站点所需的权限
@@ -64,7 +81,7 @@ type ConfigStrict = {
   defaultApiPrivate?: string
 }
 const defaultConfig = {
-  searchNonExist: false,
+  defaultFlag: 0,
   wikiAuthority: 1,
   linkGroupAuthority: 2,
   searchAuthority: 1,
@@ -77,7 +94,7 @@ export type Config = Partial<ConfigStrict>
 export const apply = (ctx: Context, configPartial: Config): void => {
   const config: ConfigStrict = {
     linkSelfAuthority:
-      (configPartial.linkGroupAuthority !== undefined
+      (typeof configPartial.linkGroupAuthority === 'number'
         ? configPartial.linkGroupAuthority
         : defaultConfig.linkGroupAuthority) - 1,
     ...defaultConfig,
@@ -110,6 +127,21 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       if (!mwApi && useDefault) mwApi = config.defaultApiGroup
     }
     return mwApi
+  }
+
+  function getMwFlagFromChat(
+    chat: Channel.Observed<'mwFlag'> | User.Observed<'mwFlag'> | undefined,
+  ): number {
+    const mwFlag = chat?.mwFlag
+    return typeof mwFlag === 'number' ? mwFlag : config.defaultFlag
+  }
+
+  function getMwFlag(session: Session<'mwFlag', 'mwFlag'>): number {
+    const type2chat: Record<
+      string,
+      Channel.Observed<'mwFlag'> | User.Observed<'mwFlag'> | undefined
+    > = { private: session.user, group: session.channel }
+    return getMwFlagFromChat(type2chat[session.subtype || ''])
   }
 
   async function searchWiki(
@@ -162,11 +194,22 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
     .option('search', '-s 如果页面不存在就进行搜索', { type: 'boolean' })
-    .userFields(['mwApi'])
-    .channelFields(['mwApi'])
+    .userFields(['mwApi', 'mwFlag'])
+    .channelFields(['mwApi', 'mwFlag'])
+    .shortcut('查wiki', {
+      prefix: false,
+      fuzzy: true,
+      options: { search: true, details: true },
+    })
+    .shortcut('搜wiki', {
+      prefix: false,
+      fuzzy: true,
+      options: { search: true, details: true },
+    })
     .action(async ({ session, options }, title = '') => {
       if (!session) throw new Error('Missing session in wiki command.')
       const mwApi = getMwApi(session)
+      const mwFlag = getMwFlag(session)
       if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link')
       const mwBot = getBot(mwApi)
       if (!title) return getUrl(mwApi)
@@ -202,7 +245,11 @@ export const apply = (ctx: Context, configPartial: Config): void => {
               `${url}${anchor} (${page.missing ? '不存在的' : ''}特殊页面)`,
             )
           } else if (page?.missing) {
-            if (!options?.search) msg.push(`${page.editurl} (页面不存在)`)
+            const goSearch =
+              options?.search === undefined
+                ? (mwFlag & Flags.searchNonExist) !== 0
+                : options.search
+            if (!goSearch) msg.push(`${page.editurl} (页面不存在)`)
             else {
               msg.push(`${page.editurl} (页面不存在，以下是搜索结果)`)
               fullbackSearch = true
@@ -210,22 +257,26 @@ export const apply = (ctx: Context, configPartial: Config): void => {
           } else {
             const pageUrl = getUrl(mwApi, { curid: page?.pageid })
 
-            // Page Details
             msg.push(pageUrl + anchor)
             if (options?.details) {
+              // Page Details
               const intro = await getPageIntro(mwBot, page?.pageid || -1)
               if (intro) msg.push(intro)
+
+              // get infobox shot
+              if (mwFlag & Flags.infoboxDetails) {
+                getInfobox(ctx, pageUrl)
+                  .then((img) => {
+                    let quote = ''
+                    if (session.messageId)
+                      quote = segment('quote', { id: session.messageId })
+                    if (img) session.sendQueued(quote + img)
+                  })
+                  .catch((e) => {
+                    logger.warn(e)
+                  })
+              }
             }
-
-            // get infobox shot
-
-            getInfobox(ctx, pageUrl)
-              .then((img) => {
-                session.sendQueued(img)
-              })
-              .catch((e) => {
-                logger.warn(e)
-              })
           }
         }
       } catch (e) {
@@ -246,12 +297,11 @@ export const apply = (ctx: Context, configPartial: Config): void => {
 
   // @command wiki.link
   ctx
-    .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接', {
-      authority: config.linkGroupAuthority,
-    })
+    .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接')
     .userFields(['mwApi', 'authority'])
     .channelFields(['mwApi'])
-    .check(({ session }) => {
+    .check(({ session }, api) => {
+      if (!api) return
       const auth = session?.user?.authority
       if (auth === undefined) return '无法获取当前用户权限'
 
@@ -259,7 +309,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       if (session?.subtype == 'private') requiredAuth = config.linkSelfAuthority
       else if (session?.subtype == 'group')
         requiredAuth = config.linkGroupAuthority
-      else return ''
+      else return
 
       if (auth < requiredAuth) return '权限不足'
     })
@@ -301,6 +351,55 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       }
     })
 
+  ctx
+    .command('wiki.flag', '修改聊天中wiki的设置')
+    .option('infobox', '-i 切换是否使用信息框', { type: 'boolean' })
+    .option('search', '-s 切换是否自动搜索', { type: 'boolean' })
+    .userFields(['authority', 'mwFlag'])
+    .channelFields(['mwFlag'])
+    .check(({ session }) => {
+      const auth = session?.user?.authority
+      if (auth === undefined) return '无法获取当前用户权限'
+
+      let requiredAuth
+      if (session?.subtype == 'private') requiredAuth = config.linkSelfAuthority
+      else if (session?.subtype == 'group')
+        requiredAuth = config.linkGroupAuthority
+      else return ''
+
+      if (auth < requiredAuth) return '权限不足'
+    })
+    .action(async ({ session, options }) => {
+      if (!session) throw new Error()
+      let subtype: 'group' | 'private'
+      if (session.subtype == 'group' || session.subtype == 'private')
+        subtype = session.subtype
+      else throw new Error('Should stopped by the checker.')
+      const userOrChannel = {
+        group: session.channel,
+        private: session.user,
+      }[subtype]
+      if (!userOrChannel) throw new Error('Should stopped by the checker.')
+      const currentFlag =
+        typeof userOrChannel?.mwFlag === 'number'
+          ? userOrChannel.mwFlag
+          : config.defaultFlag
+      if (!options?.infobox && !options?.search) {
+        return (
+          `当前设置：` +
+          `    自动搜索：${(currentFlag & Flags.searchNonExist) !== 0}` +
+          `    信息框：${(currentFlag & Flags.infoboxDetails) !== 0}`
+        )
+      }
+      if (options.infobox) {
+        userOrChannel.mwFlag = currentFlag ^ Flags.infoboxDetails
+      }
+      if (options.search) {
+        userOrChannel.mwFlag = currentFlag ^ Flags.searchNonExist
+      }
+      return session.execute('wiki.flag')
+    })
+
   // @command wiki.search
   ctx
     .command('wiki.search <search:text>', '通过名称搜索页面', {
@@ -326,13 +425,20 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     const titles = [...new Set(matched)]
     if (!titles.length) return
     logger.info('titles', titles)
-    const optionS = config.searchNonExist && titles.length == 1 ? '-s' : ''
+    let currChat
+    if (session.subtype === 'group')
+      currChat = await session.observeChannel(['mwFlag'])
+    else if (session.subtype === 'private')
+      currChat = await session.observeUser(['mwFlag'])
+    const currentFlag = getMwFlagFromChat(currChat)
+    const optionS =
+      titles.length === 1 && currentFlag & Flags.searchNonExist ? '-s' : ''
     let msg = await Promise.all(
       titles.map(
         async (i) => await session.execute(`wiki -q ${optionS} ${i}`, true),
       ),
     )
-    msg = msg.filter((m) => m)
+    msg = msg.filter((m) => m) /** remove empty elements */
     if (msg) session.send(msg.join('\n----\n'))
   })
 
@@ -462,7 +568,6 @@ async function getInfobox(ctx: Context, url: string): Promise<string> {
       deviceScaleFactor: 1.5,
     })
     await page.setContent(html)
-    await page.waitForSelector(selector)
     await page.waitForNetworkIdle()
     const infobox = await page.$(selector)
     if (!infobox) throw new Error()
