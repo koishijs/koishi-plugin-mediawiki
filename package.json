@@ -18,7 +18,7 @@
     "@koishijs/utils": "^5.0.0-beta.1",
     "axios": "^0.21.1",
     "cheerio": "^1.0.0-rc.9",
-    "koishi": "^4.0.0-beta.4",
+    "koishi": "next",
     "mwbot": "^2.0.0",
     "qs": "^6.10.1"
   },
@@ -34,7 +34,7 @@
     "typescript": "^4.5.2"
   },
   "peerDependencies": {
-    "koishi": "^4.0.0-beta.4"
+    "koishi": "next"
   },
   "repository": "https://github.com/koishijs/koishi-plugin-mediawiki",
   "author": "Dragon-Fish <824399619@qq.com>",
