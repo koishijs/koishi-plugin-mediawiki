@@ -10,8 +10,7 @@
 import {} from '@koishijs/plugin-puppeteer'
 import axios from 'axios'
 import cheerio, { SelectorType } from 'cheerio'
-import { Channel, Context, Session, Tables, User } from 'koishi'
-import { Logger, segment } from '@koishijs/utils'
+import { Channel, Context, Logger, segment, Session, User } from 'koishi'
 import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
 const logger = new Logger('wiki')
 
@@ -25,19 +24,6 @@ declare module 'koishi' {
     mwFlag?: number
   }
 }
-
-Tables.extend('channel', {
-  mwApi: 'string',
-  mwFlag: {
-    type: 'unsigned',
-  },
-})
-Tables.extend('user', {
-  mwApi: 'string',
-  mwFlag: {
-    type: 'unsigned',
-  },
-})
 
 export const name = 'mediawiki'
 
@@ -86,6 +72,19 @@ const defaultConfig = {
 export type Config = Partial<ConfigStrict>
 
 export const apply = (ctx: Context, configPartial: Config): void => {
+  ctx.model.extend('channel', {
+    mwApi: 'string',
+    mwFlag: {
+      type: 'unsigned',
+    },
+  })
+  ctx.model.extend('user', {
+    mwApi: 'string',
+    mwFlag: {
+      type: 'unsigned',
+    },
+  })
+
   const config: ConfigStrict = {
     linkSelfAuthority:
       (typeof configPartial.linkGroupAuthority === 'number'

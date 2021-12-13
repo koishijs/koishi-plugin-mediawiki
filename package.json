@@ -14,8 +14,8 @@
     "watch": "tsc --watch"
   },
   "dependencies": {
-    "@koishijs/plugin-puppeteer": "^3.0.0-beta.4",
-    "@koishijs/utils": "^5.0.0-beta.1",
+    "@koishijs/plugin-puppeteer": "next",
+    "@koishijs/utils": "next",
     "axios": "^0.21.1",
     "cheerio": "^1.0.0-rc.9",
     "koishi": "next",
