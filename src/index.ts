@@ -8,6 +8,7 @@
  */
 
 import {} from '@koishijs/plugin-puppeteer'
+import {} from '@koishijs/plugin-rate-limit'
 import axios from 'axios'
 import cheerio, { SelectorType } from 'cheerio'
 import { Channel, Context, Logger, segment, Session, User } from 'koishi'
