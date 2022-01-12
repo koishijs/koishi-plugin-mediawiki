@@ -519,27 +519,42 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     })
 }
 
-const infoboxSelector: Record<string, SelectorType> = {
-  'fandom.com': 'aside.portable-infobox',
-  'huijiwiki.com': 'table.infobox',
+type InfoboxSelector = {
+  host: string
+  selector: SelectorType
 }
+const infoboxSelectors: InfoboxSelector[] = [
+  { host: 'minecraft.fandom.com', selector: '.notaninfobox' },
+  { host: 'minecraft.fandom.com', selector: '.portable-infobox' },
+  { host: 'minecraft.fandom.com', selector: '.infobox' },
+  { host: 'minecraft.fandom.com', selector: '.tpl-infobox' },
+  { host: 'minecraft.fandom.com', selector: '.infoboxtable' },
+  { host: 'minecraft.fandom.com', selector: '.infotemplatebox' },
+  { host: 'minecraft.fandom.com', selector: '.skin-infobox' },
+  { host: 'minecraft.fandom.com', selector: '.arcaeabox' },
+  { host: 'fandom.com', selector: 'aside.portable-infobox' },
+  { host: 'huijiwiki.com', selector: 'table.infobox' },
+]
 
 async function getInfobox(ctx: Context, url: string): Promise<string> {
   if (!ctx.puppeteer) throw new Error('Missing puppeteer')
 
   const host = new URL(url).host
+  const selectors = infoboxSelectors.filter((s) => host.endsWith(s.host))
+  if (!selectors) throw new Error('Missing infobox selector')
+
+  const res = await axios.get(url)
+  const $ = cheerio.load(res.data)
+  const css: string = $.html('[rel=stylesheet]')
   let selector: SelectorType | undefined
-  for (const site in infoboxSelector) {
-    if (host.endsWith(site)) {
-      selector = infoboxSelector[site]
+  for (const s of selectors) {
+    if ($(s.selector).length) {
+      selector = s.selector
       break
     }
   }
   if (!selector) throw new Error('Missing infobox selector')
 
-  const res = await axios.get(url)
-  const $ = cheerio.load(res.data)
-  const css: string = $.html('[rel=stylesheet]')
   let curr = $($(selector)[0])
   while (true) {
     if (curr[0].tagName.toLowerCase() === 'body') break
@@ -548,10 +563,10 @@ async function getInfobox(ctx: Context, url: string): Promise<string> {
   }
   const body = $.html(curr)
   const html = `<!DOCTYPE html>
-  <html>
-  <head><base href="${new URL(url).origin}">${css}</head>
-  ${body}
-  <html>`
+   <html>
+   <head><base href="${new URL(url).origin}">${css}</head>
+   ${body}
+   <html>`
 
   const page = await ctx.puppeteer.page()
   try {
