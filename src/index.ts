@@ -8,11 +8,25 @@
  */
 
 import {} from '@koishijs/plugin-puppeteer'
+import {} from '@koishijs/plugin-puppeteer/lib/screenshot'
 import {} from '@koishijs/plugin-rate-limit'
 import axios from 'axios'
 import cheerio, { SelectorType } from 'cheerio'
-import { Channel, Context, Logger, segment, Session, User } from 'koishi'
-import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
+import {
+  Channel,
+  Context,
+  Logger,
+  Quester,
+  Schema,
+  segment,
+  Session,
+  User,
+} from 'koishi'
+import { InterwikiInfo, Wiki } from 'mw.js'
+import { RequestManager } from 'mw.js/dist/utils'
+import ProxyAgent from 'proxy-agent'
+import { getUrl, isValidApi, resolveBrackets } from './utils'
+
 const logger = new Logger('wiki')
 
 declare module 'koishi' {
@@ -26,8 +40,6 @@ declare module 'koishi' {
   }
 }
 
-export const name = 'mediawiki'
-
 export enum Flags {
   /** wikilink 到不存在的页面时是否自动进行搜索*/
   searchNonExist = 1,
@@ -35,44 +47,72 @@ export enum Flags {
   infoboxDetails = 2,
 }
 
-type ConfigStrict = {
-  /**
-   * 默认 flag
-   * @default 0
-   */
-  defaultFlag: number
-  wikiAuthority: number
-  /**
-   * 修改群聊环境下 wiki 站点所需的权限
-   * @default 2
-   */
-  linkGroupAuthority: number
-  /**
-   * 修改与用户自身私聊环境下 wiki 站点所需的权限
-   * @default linkGroupAuthority - 1
-   */
-  linkSelfAuthority: number
-  searchAuthority: number
-  parseAuthority: number
-  parseMinInterval: number
-  shotAuthority: number
-  /** 默认群聊 wiki 站点 */
-  defaultApiGroup?: string
-  /** 默认私聊 wiki 站点 */
-  defaultApiPrivate?: string
+const MOCK_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.78',
 }
-const defaultConfig = {
-  defaultFlag: 0,
-  wikiAuthority: 1,
-  linkGroupAuthority: 2,
-  searchAuthority: 1,
-  parseAuthority: 3,
-  parseMinInterval: 10 * 1000,
-  shotAuthority: 2,
-}
-export type Config = Partial<ConfigStrict>
 
-export const apply = (ctx: Context, configPartial: Config): void => {
+type ConfigResolved = {
+  request: Quester.Config
+  siteRequest: { url: string; request: Quester.Config }[]
+  defaultFlag: {
+    searchNonExist: boolean
+    infoboxDetails: boolean
+  }
+  defaultApi: {
+    group?: string
+    private?: string
+  }
+}
+export type Config = Partial<ConfigResolved>
+
+export const Config = Schema.object({
+  request: new Schema({
+    ...Quester.Config,
+    meta: { ...Quester.Config.meta },
+  }).description('api 请求设置；不填则使用 koishi 全局设置1111'),
+  siteRequest: Schema.array(
+    Schema.object({
+      url: Schema.string().required().role('url'),
+      request: new Schema({
+        ...Quester.Config,
+        meta: { ...Quester.Config.meta },
+      }).required(),
+    }),
+  )
+    .description(
+      '用于指定站点 api 的请求设置，将覆盖 Config.request；不必写全 api；靠下的规则优先度更高333',
+    )
+    .default([
+      {
+        url: 'huijiwiki.com',
+        request: { headers: MOCK_HEADERS },
+      },
+    ]),
+  defaultFlag: Schema.object({
+    searchNonExist: Schema.boolean()
+      .default(false)
+      .description('尝试获取不存在的页面的链接时是否自动进行搜索'),
+    infoboxDetails: Schema.boolean()
+      .default(false)
+      .description('获取详情时，同时获取信息框'),
+  })
+    .default({
+      searchNonExist: false,
+      infoboxDetails: false,
+    })
+    .description('wiki 查询的默认设置'),
+  defaultApi: Schema.object({
+    group: Schema.string().role('url'),
+    private: Schema.string().role('url'),
+  })
+    .default({})
+    .description('默认链接的站点'),
+})
+
+export const name = 'mediawiki'
+export const using = ['database']
+export const apply = (ctx: Context, config: ConfigResolved): void => {
   ctx.model.extend('channel', {
     mwApi: 'string',
     mwFlag: {
@@ -86,26 +126,45 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     },
   })
 
-  const config: ConfigStrict = {
-    linkSelfAuthority:
-      (typeof configPartial.linkGroupAuthority === 'number'
-        ? configPartial.linkGroupAuthority
-        : defaultConfig.linkGroupAuthority) - 1,
-    ...defaultConfig,
-    ...configPartial,
+  if (config.defaultApi?.private && !isValidApi(config.defaultApi.private)) {
+    logger.warn(
+      `私聊默认链接的 MediaWiki 站点设置的不是合法 api.php 网址：${config.defaultApi.private}`,
+    )
+    config.defaultApi.private = undefined
+  }
+  if (config.defaultApi?.group && !isValidApi(config.defaultApi.group)) {
+    logger.warn(
+      `defaultApiGroup 不是合法 api.php 网址：${config.defaultApi.group}`,
+    )
+    config.defaultApi.group = undefined
   }
 
-  if (config.defaultApiPrivate && !isValidApi(config.defaultApiPrivate)) {
-    logger.warn(
-      `defaultApiPrivate 不是合法 api.php 网址：${config.defaultApiPrivate}`,
-    )
-    config.defaultApiPrivate = undefined
-  }
-  if (config.defaultApiGroup && !isValidApi(config.defaultApiGroup)) {
-    logger.warn(
-      `defaultApiGroup 不是合法 api.php 网址：${config.defaultApiGroup}`,
-    )
-    config.defaultApiGroup = undefined
+  const defaultFlags =
+    (config.defaultFlag.infoboxDetails ? Flags.infoboxDetails : 0) |
+    (config.defaultFlag.searchNonExist ? Flags.searchNonExist : 0)
+
+  const getWiki = (api: string) => {
+    let proxyUrl = config.request.proxyAgent || ctx.http.config.proxyAgent
+    let requestHeaders = {
+      ...(ctx.http.config.headers || {}),
+      ...(config.request.headers || {}),
+    }
+    for (const rule of config.siteRequest) {
+      if (api.includes(rule.url)) {
+        proxyUrl = rule.request.proxyAgent || proxyUrl
+        requestHeaders = {
+          ...requestHeaders,
+          ...(rule.request.headers || {}),
+        }
+      }
+    }
+    return new Wiki({
+      api,
+      request: new RequestManager({
+        agent: proxyUrl ? ProxyAgent(proxyUrl) : undefined,
+        headers: requestHeaders,
+      }),
+    })
   }
 
   function getMwApi(
@@ -115,10 +174,10 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     let mwApi
     if (session.subtype == 'private') {
       mwApi = session.user?.mwApi
-      if (!mwApi && useDefault) mwApi = config.defaultApiPrivate
+      if (!mwApi && useDefault) mwApi = config.defaultApi.private
     } else if (session.subtype == 'group') {
       mwApi = session.channel?.mwApi
-      if (!mwApi && useDefault) mwApi = config.defaultApiGroup
+      if (!mwApi && useDefault) mwApi = config.defaultApi.group
     }
     return mwApi
   }
@@ -127,7 +186,8 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     chat: Channel.Observed<'mwFlag'> | User.Observed<'mwFlag'> | undefined,
   ): number {
     const mwFlag = chat?.mwFlag
-    return typeof mwFlag === 'number' ? mwFlag : config.defaultFlag
+
+    return typeof mwFlag === 'number' ? mwFlag : defaultFlags
   }
 
   function getMwFlag(session: Session<'mwFlag', 'mwFlag'>): number {
@@ -150,12 +210,11 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       if (!search || search === '.' || search === '。') return ''
     }
     getMwApi(session)
-    const bot = getBot(mwApi)
-    if (!bot) return session.execute('wiki.link')
+    const site = getWiki(mwApi)
+    if (!site) return session.execute('wiki.link')
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [keyword, results, summarys, links] = await bot.request({
-      action: 'opensearch',
-      format: 'json',
+    const [_keyword, results, _summaries, _links] = await site.search({
       search,
       redirects: 'resolve',
       limit: 3,
@@ -181,9 +240,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
 
   // @command wiki
   ctx
-    .command('wiki [title:text]', 'MediaWiki 相关功能', {
-      authority: config.wikiAuthority,
-    })
+    .command('wiki [title:text]', 'MediaWiki 相关功能')
     .example('wiki 页面 - 获取页面链接')
     .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
     .option('quiet', '-q 静默查询', { type: 'boolean' })
@@ -205,8 +262,8 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       const mwApi = getMwApi(session)
       const mwFlag = getMwFlag(session)
       if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link')
-      const mwBot = getBot(mwApi)
       if (!title) return getUrl(mwApi)
+      const site = getWiki(mwApi)
 
       let anchor = ''
       if (title.split('#').length > 1)
@@ -215,7 +272,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       const msg = []
       let fullbackSearch = false
       try {
-        const { redirect, page, interwiki } = await getPageSafe(mwBot, title)
+        const { redirect, page, interwiki } = await getPageSafe(site, title)
 
         if (interwiki) msg.push(`跨语言链接：${interwiki.url}${anchor}`)
         else {
@@ -254,11 +311,11 @@ export const apply = (ctx: Context, configPartial: Config): void => {
             msg.push(pageUrl + anchor)
             if (options?.details) {
               // Page Details
-              const intro = await getPageIntro(mwBot, page?.pageid || -1)
+              const intro = await getPageIntro(site, page?.pageid || -1)
               if (intro) msg.push(intro)
 
               // get infobox shot
-              if (mwFlag & Flags.infoboxDetails) {
+              if (mwFlag & Flags.infoboxDetails && ctx.puppeteer) {
                 getInfobox(ctx, pageUrl)
                   .then((img) => {
                     let quote = ''
@@ -294,19 +351,6 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接')
     .userFields(['mwApi', 'authority'])
     .channelFields(['mwApi'])
-    .before(({ session }, api) => {
-      if (!api) return
-      const auth = session?.user?.authority
-      if (auth === undefined) return '无法获取当前用户权限'
-
-      let requiredAuth
-      if (session?.subtype == 'private') requiredAuth = config.linkSelfAuthority
-      else if (session?.subtype == 'group')
-        requiredAuth = config.linkGroupAuthority
-      else return
-
-      if (auth < requiredAuth) return '权限不足'
-    })
     .action(async ({ session }, api) => {
       if (!session) throw new Error()
       let subtype: 'group' | 'private'
@@ -351,18 +395,6 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     .option('search', '-s 切换是否自动搜索', { type: 'boolean' })
     .userFields(['authority', 'mwFlag'])
     .channelFields(['mwFlag'])
-    .before(({ session }) => {
-      const auth = session?.user?.authority
-      if (auth === undefined) return '无法获取当前用户权限'
-
-      let requiredAuth
-      if (session?.subtype == 'private') requiredAuth = config.linkSelfAuthority
-      else if (session?.subtype == 'group')
-        requiredAuth = config.linkGroupAuthority
-      else return ''
-
-      if (auth < requiredAuth) return '权限不足'
-    })
     .action(async ({ session, options }) => {
       if (!session) throw new Error()
       let subtype: 'group' | 'private'
@@ -377,7 +409,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       const currentFlag =
         typeof userOrChannel?.mwFlag === 'number'
           ? userOrChannel.mwFlag
-          : config.defaultFlag
+          : defaultFlags
       if (!options?.infobox && !options?.search) {
         return (
           `当前设置：` +
@@ -396,9 +428,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
 
   // @command wiki.search
   ctx
-    .command('wiki.search <search:text>', '通过名称搜索页面', {
-      authority: config.searchAuthority,
-    })
+    .command('wiki.search <search:text>', '通过名称搜索页面')
     .userFields(['mwApi'])
     .channelFields(['mwApi'])
     .action(async ({ session }, search) => {
@@ -438,10 +468,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
 
   // parse
   ctx
-    .command('wiki.parse <text:text>', '解析 wiki 标记文本', {
-      minInterval: config.parseMinInterval,
-      authority: config.parseAuthority,
-    })
+    .command('wiki.parse <text:text>', '解析 wiki 标记文本')
     .option('title', '-t <title:string> 用于渲染的页面标题')
     .option('pure', '-p 纯净模式')
     .userFields(['mwApi'])
@@ -454,24 +481,22 @@ export const apply = (ctx: Context, configPartial: Config): void => {
       if (!ctx.puppeteer) return '错误：未找到 puppeteer。'
       text = resolveBrackets(text)
       if (!mwApi) return session.execute('wiki.link')
-      const bot = getBot(mwApi)
-
-      const { parse, error } = await bot.request({
-        action: 'parse',
+      const site = getWiki(mwApi)
+      const { parse } = await site.parse({
         title: options?.title,
         text,
-        pst: 1,
-        disableeditsection: 1,
-        preview: 1,
+        pst: true,
+        disableeditsection: true,
+        preview: true,
       })
 
-      if (!parse) return `出现了亿点问题${error ? '：' + error : ''}。`
+      if (!parse) return `出现了亿点问题。`
 
       const page = await ctx.puppeteer.page()
 
       try {
         if (options?.pure) {
-          await page.setContent(parse?.text?.['*'])
+          await page.setContent(parse?.text)
           const img = await page.screenshot({ fullPage: true })
           await page.close()
           return segment.image(img)
@@ -480,7 +505,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
         await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
         await page.evaluate((parse) => {
           $('h1').text(parse?.title)
-          $('#mw-content-text').html(parse?.text?.['*'])
+          $('#mw-content-text').html(parse?.text)
           $('#mw-content-text').append(
             '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>',
           )
@@ -496,9 +521,7 @@ export const apply = (ctx: Context, configPartial: Config): void => {
     })
 
   ctx
-    .command('wiki.shot [title]', 'screenshot', {
-      authority: config.shotAuthority,
-    })
+    .command('wiki.shot [title]', 'screenshot')
     .userFields(['mwApi'])
     .channelFields(['mwApi'])
     .action(async ({ session }, title) => {
@@ -570,7 +593,6 @@ async function getInfobox(ctx: Context, url: string): Promise<string> {
 
   const page = await ctx.puppeteer.page()
   try {
-    await page.goto(url)
     page.setViewport({
       width: 640,
       height: 480,
@@ -599,35 +621,33 @@ interface pageInfo {
 }
 
 export async function getPageSafe(
-  bot: any,
+  site: Wiki,
   title: string,
 ): Promise<{
   redirect: { from: string; to: string; tofragment?: string } | undefined
   page: pageInfo | undefined
-  interwiki: { url: string } | undefined
+  interwiki?: InterwikiInfo
 }> {
-  const { query, error } = await bot.request({
-    action: 'query',
-    formatversion: 2,
+  const siteInfo = await site.getSiteInfo(
+    'specialpagealiases',
+    'namespacealiases',
+    'namespaces',
+  )
+  const res = await site.rawQueryProp({
     prop: 'info',
-    meta: 'siteinfo',
-    siprop: 'specialpagealiases|namespacealiases|namespaces',
-    iwurl: 1,
     titles: title,
-    redirects: 1,
-    converttitles: 1,
-    exchars: '150',
-    exlimit: 'max',
-    explaintext: 1,
-    inprop: 'url|displaytitle',
+    iwurl: true,
+    redirects: true,
+    converttitles: true,
+    inprop: ['url', 'displaytitle'],
   })
-  if (!query) throw new Error(error)
 
-  let redirect = query.redirects?.[0],
-    page = query.pages?.[0]
-  const interwiki = query.interwiki?.[0],
-    specialpagealiases = query.specialpagealiases,
-    namespaces = query.namespaces
+  let redirect = res.redirects?.[0]
+  let page: Partial<typeof res.pages[number]> & { special?: boolean } =
+    res.pages?.[0]
+  const interwiki = res.interwiki?.[0],
+    specialpagealiases = siteInfo.query.specialpagealiases,
+    namespaces = siteInfo.query.namespaces
   if (!interwiki) {
     /**
      * @desc 某些特殊页面会暴露服务器 IP 地址，必须特殊处理这些页面
@@ -637,18 +657,18 @@ export async function getPageSafe(
     const dangerPageNames = ['Mypage', 'Mytalk']
     // 获取全部别名
     const dangerPages = specialpagealiases
-      .filter((spAlias: { realname: string }) =>
-        dangerPageNames.includes(spAlias.realname),
-      )
-      .map((spAlias: { aliases: string }) => spAlias.aliases)
-      .flat(Infinity)
+      .filter(({ realname }) => dangerPageNames.includes(realname))
+      .map(({ aliases }) => aliases)
+      .flat()
     // 获取本地特殊名字空间的标准名称
     const specialNsName = namespaces['-1'].name
+    const [redirectNs, redirectTitle] = redirect?.from?.split(':', 2) || []
     if (
       // 发生重定向
-      redirect?.from?.split(':')?.shift() === specialNsName &&
+      redirect &&
+      redirectNs === specialNsName &&
       // 被标记为危险页面
-      dangerPages.includes(redirect.from.split(':').pop().split('/').shift())
+      dangerPages.includes(redirectTitle.split('/')[0])
     ) {
       // 覆写页面资料
       page = {
@@ -664,24 +684,23 @@ export async function getPageSafe(
 }
 
 export async function getPageIntro(
-  bot: any,
+  site: Wiki,
   pageid: number,
   limit = 150,
 ): Promise<string> {
   try {
-    const { parse } = await bot.request({
-      action: 'parse',
+    const { parse } = await site.parse({
       pageid,
-      prop: 'text|wikitext',
+      prop: ['text', 'wikitext'],
       wrapoutputclass: 'mw-parser-output',
-      disablelimitreport: 1,
-      disableeditsection: 1,
-      disabletoc: 1,
+      disablelimitreport: true,
+      disableeditsection: true,
+      disabletoc: true,
     })
-    const $ = cheerio.load(parse?.text?.['*'] || '')
+    const $ = cheerio.load(parse?.text || '')
     const $contents = $('.mw-parser-output > p')
     const extract = $contents.text().trim() || ''
-    // const extract = parse?.wikitext?.['*'] || ''
+    // const extract = parse?.wikitext || ''
     return extract.length > limit ? extract.slice(0, limit) + '...' : extract
   } catch (e) {
     new Logger('wiki').warn(e)

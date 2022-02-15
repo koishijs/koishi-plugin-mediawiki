@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-mediawiki",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MediaWiki for koishijs",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -14,28 +14,27 @@
     "watch": "tsc --watch"
   },
   "dependencies": {
-    "@koishijs/plugin-rate-limit": "^1.0.0",
-    "@koishijs/utils": "^5.0.0",
-    "axios": "^0.21.1",
-    "cheerio": "^1.0.0-rc.9",
-    "koishi": "^4.0.0",
-    "mwbot": "^2.0.0",
-    "qs": "^6.10.1"
+    "@koishijs/plugin-rate-limit": "^1.0.3",
+    "axios": "^0.25.0",
+    "cheerio": "^1.0.0-rc.10",
+    "mw.js": "^2.4.1",
+    "proxy-agent": "^5.0.0"
   },
   "devDependencies": {
     "@dragon-fish/bump": "^0.0.15",
-    "@koishijs/plugin-puppeteer": "^3.0.0",
+    "@koishijs/plugin-puppeteer": "^3.0.2",
     "@types/jquery": "^3.5.9",
     "@typescript-eslint/eslint-plugin": "^5.4.0",
     "@typescript-eslint/parser": "^5.4.0",
     "eslint": "^8.3.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-prettier": "^4.0.0",
+    "koishi": "^4.2.1",
     "prettier": "^2.4.1",
     "typescript": "^4.5.2"
   },
   "peerDependencies": {
-    "koishi": "^4.0.0"
+    "koishi": "^4.2.1"
   },
   "repository": "https://github.com/koishijs/koishi-plugin-mediawiki",
   "author": "Dragon-Fish <824399619@qq.com>",
