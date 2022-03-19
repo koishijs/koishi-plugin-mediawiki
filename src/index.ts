@@ -593,14 +593,15 @@ async function getInfobox(ctx: Context, url: string): Promise<string> {
 
   const page = await ctx.puppeteer.page()
   try {
+    await page.goto(url)
     page.setViewport({
       width: 640,
       height: 480,
       deviceScaleFactor: 1.5,
     })
     await page.setContent(html)
-    await page.waitForNetworkIdle()
     const infobox = await page.$(selector)
+    await page.waitForNetworkIdle()
     if (!infobox) throw new Error()
     const image = await infobox.screenshot()
     return segment.image(image)
