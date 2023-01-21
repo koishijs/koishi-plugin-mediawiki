@@ -1,5 +1,5 @@
 export interface InfoboxDefinition {
-  match: (url: URL) => boolean
-  cssClasses: string | string[]
+  match: (url: URL) => boolean | string
+  selector: string | string[]
   injectStyles?: string
 }

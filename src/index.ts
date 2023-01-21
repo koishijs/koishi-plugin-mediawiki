@@ -1,11 +1,10 @@
 /**
- * @name koishi-plugin-mediawiki
+ * koishi-plugin-mediawiki
  * @desc MediaWiki plugin for Koishijs
- *
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
-import { Context, h, Logger } from 'koishi'
+import { Context, h, Logger, Schema } from 'koishi'
 import type {} from 'koishi-plugin-puppeteer'
 import type {
   MWApiResponseQueryPagesWithSiteinfo,
@@ -37,12 +36,36 @@ const DEFAULT_CONFIGS: Partial<Config> = {
 }
 
 export const name = 'mediawiki'
-
 export default class PluginMediawiki {
   public INFOBOX_DEFINITION = [
     ...(this.config.customInfoboxes || []),
     ...INFOBOX_DEFINITION,
   ]
+  static Config = Schema.object({
+    cmdAuthWiki: Schema.number()
+      .description('指令`wiki`的权限等级：基础指令，请求条目链接与基本信息等')
+      .default(1),
+    cmdAuthConnect: Schema.number()
+      .description('指令`wiki.connect`的权限等级：将wiki绑定到群聊')
+      .default(2),
+    cmdAuthSearch: Schema.number()
+      .description('指令`wiki.search`的权限等级：在绑定的wiki中搜索')
+      .default(1),
+    searchIfNotExist: Schema.boolean().description(
+      '触发`wiki`指令时，结果有且仅有一个不存在的主名字空间的页面时否自动触发搜索',
+    ),
+    customInfoboxes: Schema.array(
+      Schema.object({
+        match: Schema.string()
+          .description(
+            '正则表达式，决定该组信息框定义是否匹配当前请求的URL。(URL示例 `https://example.com/wiki/PageName?action=render`，填写示例：`^https?://example\\\\.com/`)',
+          )
+          .required(),
+        selector: Schema.array(String).description('信息框的选择器').required(),
+        injectStyles: Schema.string().description('额外插入的CSS'),
+      }),
+    ).description('自定义信息框定义组，每一个定义组至少需要match以及selector'),
+  })
 
   constructor(
     public ctx: Context,
@@ -253,6 +276,7 @@ export default class PluginMediawiki {
           finalMsg = msgBuilder.prependOriginal().all()
         }
 
+        // 结果有且仅有一个存在的主名字空间的页面
         if (
           pages &&
           pages.length === 1 &&
@@ -262,7 +286,21 @@ export default class PluginMediawiki {
         ) {
           await session.send(finalMsg)
           session.send(await this.shotInfobox(pages[0].canonicalurl))
-        } else {
+        }
+        // 结果有且仅有一个不存在的主名字空间的页面
+        else if (
+          this.config.searchIfNotExist &&
+          pages.length === 1 &&
+          pages[0].ns === 0 &&
+          pages[0].missing &&
+          !pages[0].invalid
+        ) {
+          finalMsg += `\n💡即将为您搜索wiki……`
+          await session.send(finalMsg)
+          session.execute(`wiki.search ${pages[0].title}`)
+        }
+        // 其他情况
+        else {
           return finalMsg
         }
       })
@@ -366,9 +404,15 @@ export default class PluginMediawiki {
   }
 
   async shotInfobox(url: string) {
-    const matched = this.INFOBOX_DEFINITION.find((i) => i.match(new URL(url)))
+    const matched = this.INFOBOX_DEFINITION.find((i) => {
+      if (typeof i.match === 'string') {
+        return new RegExp(i.match).test(url)
+      } else {
+        return i.match(new URL(url))
+      }
+    })
     if (!matched) return ''
-    this.logger.info('SHOT_INFOBOX', url, matched.cssClasses)
+    this.logger.info('SHOT_INFOBOX', url, matched.selector)
     const start = Date.now()
     const timeSpend = () => ((Date.now() - start) / 1000).toFixed(3) + 's'
 
@@ -418,9 +462,9 @@ export default class PluginMediawiki {
 
     try {
       const target = await page.$(
-        Array.isArray(matched.cssClasses)
-          ? matched.cssClasses.join(', ')
-          : matched.cssClasses,
+        Array.isArray(matched.selector)
+          ? matched.selector.join(', ')
+          : matched.selector,
       )
       if (!target) {
         this.logger.info('SHOT_INFOBOX', 'Canceled', 'Missing target')
