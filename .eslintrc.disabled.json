@@ -16,10 +16,8 @@
     "sourceType": "module",
     "ecmaVersion": "latest"
   },
-  "plugins": [
-    "@typescript-eslint"
-  ],
-  "root":true,
+  "plugins": ["@typescript-eslint"],
+  "root": true,
   "rules": {
     "@typescript-eslint/explicit-function-return-type": 1
     // "@typescript-eslint/no-explicit-any": 0
