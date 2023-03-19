@@ -13,7 +13,8 @@
     "watch": "tsc --watch"
   },
   "dependencies": {
-    "mediawiki-api-axios": "^1.3.2"
+    "mediawiki-api-axios": "^1.3.2",
+    "tslib": "^2.5.0"
   },
   "devDependencies": {
     "@types/node": "^18.11.18",

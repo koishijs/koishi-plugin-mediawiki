@@ -37,6 +37,7 @@ const DEFAULT_CONFIGS: Partial<Config> = {
 
 export const name = 'mediawiki'
 export default class PluginMediawiki {
+  static using = ['database', 'puppeteer']
   public INFOBOX_DEFINITION = [
     ...(this.config.customInfoboxes || []),
     ...INFOBOX_DEFINITION,
@@ -72,7 +73,6 @@ export default class PluginMediawiki {
     public config: Partial<Config> = DEFAULT_CONFIGS,
   ) {
     this.config = { ...DEFAULT_CONFIGS, ...config }
-    // ctx.using(['database', 'puppeteer'], () => {})
     ctx.model.extend('channel', {
       mwApi: 'string',
     })
@@ -129,6 +129,7 @@ export default class PluginMediawiki {
               anchor: i.split('#')[1] ? '#' + encodeURI(i.split('#')[1]) : '',
             }
           })
+          .filter((i) => !!i.name)
           .reverse()
 
         const { data } = await api

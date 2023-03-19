@@ -36,7 +36,7 @@ export function parseTitlesFromText(str: string) {
         .map((i) => i[1].split('|')[0])
         .map(getWikiTitleDBKey),
     ),
-  )
+  ).filter((i) => !!i)
 }
 
 export function getUrl(base: string, params = {}, script = 'index'): string {

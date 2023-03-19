@@ -12,7 +12,8 @@
     "esModuleInterop": true,
     "moduleResolution": "Node",
     "strictBindCallApply": true,
-    "strict": true
+    "strict": true,
+    "importHelpers": true
   },
   "include": ["src"]
 }
