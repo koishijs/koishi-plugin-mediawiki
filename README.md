@@ -18,4 +18,4 @@ Koishijs 的 MediaWiki 插件，将您的群聊与 wiki 站点紧密连接！
 
 ## 系统需求
 
-需要 koishi v3，并安装数据库。
+需要 koishi v4，并安装数据库。

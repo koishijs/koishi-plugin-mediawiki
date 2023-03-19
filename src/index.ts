@@ -1,145 +1,162 @@
 /**
- * @name koishi-plugin-mediawiki
+ * koishi-plugin-mediawiki
  * @desc MediaWiki plugin for Koishijs
- *
  * @author Koishijs(机智的小鱼君) <dragon-fish@qq.com>
  * @license Apache-2.0
  */
+import { Context, h, Logger, Schema } from 'koishi'
+import type {} from 'koishi-plugin-puppeteer'
+import type {
+  MWApiResponseQueryPagesWithSiteinfo,
+  MWApiResponseQuerySearch,
+} from './types/MediaWiki'
+import {
+  getUrl,
+  getWikiDisplayTitle,
+  isValidApi,
+  parseTitlesFromText,
+  useApi,
+} from './utils/wiki'
+import { INFOBOX_DEFINITION } from './infoboxes'
+import { BulkMessageBuilder } from './utils/BulkMessageBuilder'
+import { Config } from './types/Config'
 
-import cheerio from 'cheerio'
-import { Context, Session, Tables } from 'koishi-core'
-import {} from 'koishi-plugin-puppeteer'
-import { segment } from 'koishi-utils'
-import { getBot, getUrl, isValidApi, resolveBrackets } from './utils'
-
-declare module 'koishi-core' {
+declare module 'koishi' {
   interface Channel {
     mwApi?: string
   }
 }
-Tables.extend('channel', {
-  fields: {
-    mwApi: 'string',
-  },
-})
+
+const DEFAULT_CONFIGS: Partial<Config> = {
+  cmdAuthWiki: 1,
+  cmdAuthConnect: 2,
+  cmdAuthSearch: 1,
+  searchIfNotExist: false,
+  customInfoboxes: [],
+}
 
 export const name = 'mediawiki'
-
-type ConfigStrict = {
-  /** wikilink 到不存在的页面时是否自动进行搜索 */
-  searchNonExist: boolean
-  wikiAuthority: number
-  linkAuthority: number
-  searchAuthority: number
-  parseAuthority: number
-  parseMinInterval: number
-  shotAuthority: number
-}
-const defaultConfig = {
-  searchNonExist: false,
-  wikiAuthority: 1,
-  linkAuthority: 2,
-  searchAuthority: 1,
-  parseAuthority: 3,
-  parseMinInterval: 10 * 1000,
-  shotAuthority: 2,
-}
-export type Config = Partial<ConfigStrict>
-
-async function searchWiki(
-  session: Session<never, 'mwApi'>,
-  search: string | undefined,
-): Promise<string | undefined> {
-  if (!search) {
-    session.sendQueued('要搜索什么呢？(输入空行或句号取消)')
-    search = (await session.prompt(30 * 1000)).trim()
-    if (!search || search === '.' || search === '。') return ''
-  }
-  const bot = getBot(session)
-  if (!bot) return session.execute('wiki.link')
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [keyword, results, summarys, links] = await bot.request({
-    action: 'opensearch',
-    format: 'json',
-    search,
-    redirects: 'resolve',
-    limit: 3,
+export default class PluginMediawiki {
+  static using = ['database', 'puppeteer']
+  public INFOBOX_DEFINITION = [
+    ...(this.config.customInfoboxes || []),
+    ...INFOBOX_DEFINITION,
+  ]
+  static Config = Schema.object({
+    cmdAuthWiki: Schema.number()
+      .description('指令`wiki`的权限等级：基础指令，请求条目链接与基本信息等')
+      .default(1),
+    cmdAuthConnect: Schema.number()
+      .description('指令`wiki.connect`的权限等级：将wiki绑定到群聊')
+      .default(2),
+    cmdAuthSearch: Schema.number()
+      .description('指令`wiki.search`的权限等级：在绑定的wiki中搜索')
+      .default(1),
+    searchIfNotExist: Schema.boolean().description(
+      '触发`wiki`指令时，结果有且仅有一个不存在的主名字空间的页面时否自动触发搜索',
+    ),
+    customInfoboxes: Schema.array(
+      Schema.object({
+        match: Schema.string()
+          .description(
+            '正则表达式，决定该组信息框定义是否匹配当前请求的URL。(URL示例 `https://example.com/wiki/PageName?action=render`，填写示例：`^https?://example\\\\.com/`)',
+          )
+          .required(),
+        selector: Schema.array(String).description('信息框的选择器').required(),
+        injectStyles: Schema.string().description('额外插入的CSS'),
+      }),
+    ).description('自定义信息框定义组，每一个定义组至少需要match以及selector'),
   })
 
-  const msg = []
-
-  if (results.length < 1) {
-    return `关键词“${search}”没有匹配结果。`
-  }
-
-  results.forEach((item: string, index: number) => {
-    msg.push(`${index + 1}. ${item}`)
-  })
-  msg.push('请输入想查看的页面编号。')
-  await session.sendQueued(msg.join('\n'))
-
-  const answer = parseInt(await session.prompt(30 * 1000))
-  if (!isNaN(answer) && results[answer - 1]) {
-    session.execute('wiki --details ' + results[answer - 1])
-  }
-}
-
-export const apply = (ctx: Context, configPartial: Config): void => {
-  const config: ConfigStrict = { ...defaultConfig, ...configPartial }
-  // @command wiki
-  ctx
-    .command('wiki [title:text]', 'MediaWiki 相关功能', {
-      authority: config.wikiAuthority,
+  constructor(
+    public ctx: Context,
+    public config: Partial<Config> = DEFAULT_CONFIGS,
+  ) {
+    this.config = { ...DEFAULT_CONFIGS, ...config }
+    ctx.model.extend('channel', {
+      mwApi: 'string',
     })
-    .example('wiki 页面 - 获取页面链接')
-    .channelFields(['mwApi'])
-    .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
-    .option('quiet', '-q 静默查询', { type: 'boolean' })
-    .option('search', '-s 如果页面不存在就进行搜索', { type: 'boolean' })
-    .action(async ({ session, options }, title = '') => {
-      if (!session?.channel) throw new Error()
-      const { mwApi } = session.channel
-      if (!mwApi) return options?.quiet ? '' : session.execute('wiki.link')
-      const bot = getBot(session)
-      if (!title) return getUrl(mwApi)
-      let anchor = ''
-      if (title.split('#').length > 1)
-        anchor = '#' + encodeURI(title.split('#')[1] || '')
-      const { query, error } = await bot.request({
-        action: 'query',
-        formatversion: 2,
-        prop: 'extracts|info',
-        meta: 'siteinfo',
-        siprop: 'specialpagealiases|namespacealiases|namespaces',
-        iwurl: 1,
-        titles: title,
-        redirects: 1,
-        converttitles: 1,
-        exchars: '150',
-        exlimit: 'max',
-        explaintext: 1,
-        inprop: 'url|displaytitle',
+    this.#initCommands()
+  }
+
+  get logger(): Logger {
+    return this.ctx.logger('mediawiki')
+  }
+
+  #initCommands(): void {
+    // @command wiki
+    this.ctx
+      .command('wiki [titles:text]', 'MediaWiki 相关功能', {
+        authority: this.config.cmdAuthWiki,
       })
+      .example('wiki 页面 - 获取页面链接')
+      .channelFields(['mwApi'])
+      .option('details', '-d 显示页面的更多资讯', { type: 'boolean' })
+      .option('search', '-s 如果页面不存在就进行搜索', { type: 'boolean' })
+      .option('quiet', '-q 静默执行（忽略未绑定提示）', {
+        type: 'boolean',
+        // @ts-ignore
+        hidden: true,
+      })
+      .action(async ({ session, options }, titlesInput = '') => {
+        if (!session?.channel) throw new Error('Missing channel context')
+        const { mwApi } = session.channel
 
-      // ctx.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
+        // Missing connection init
+        if (!mwApi) {
+          return options?.quiet ? '' : session.execute('wiki.connect -h')
+        }
+        // Missing titles
+        if (!titlesInput) {
+          return getUrl(mwApi)
+        }
 
-      if (!query) return `出现了亿点问题${error ? '：' + error : ''}。`
+        // Generate API client
+        const api = useApi(mwApi)
 
-      const {
-        redirects: rawRedirects,
-        pages: rawPages,
-        interwiki,
-        specialpagealiases,
-        namespaces,
-      } = query
-      const msg = []
-      let fullbackSearch = false
+        // 去重并缓存用户输入的标题及锚点
+        const titles = Array.from(
+          new Set(
+            titlesInput
+              .split('|')
+              .map(getWikiDisplayTitle)
+              .filter((i) => !!i),
+          ),
+        )
+          .map((i) => {
+            return {
+              name: i.split('#')[0],
+              anchor: i.split('#')[1] ? '#' + encodeURI(i.split('#')[1]) : '',
+            }
+          })
+          .filter((i) => !!i.name)
+          .reverse()
 
-      let pages = rawPages
-      let redirects = rawRedirects
-      if (interwiki && interwiki.length) {
-        msg.push(`跨语言链接：${interwiki?.[0]?.url}${anchor}`)
-      } else {
+        const { data } = await api
+          .get<MWApiResponseQueryPagesWithSiteinfo>({
+            action: 'query',
+            prop: 'extracts|info',
+            meta: 'siteinfo',
+            siprop: 'specialpagealiases|namespacealiases|namespaces',
+            iwurl: 1,
+            titles: titles.map((i) => i.name),
+            redirects: 1,
+            converttitles: 1,
+            exchars: '150',
+            exlimit: 'max',
+            explaintext: 1,
+            inprop: 'url|displaytitle',
+          })
+          .catch((e) => {
+            session.send(`查询时遇到问题：${e || '-'}`)
+            throw e
+          })
+
+        this.logger.debug('QUERY DATA', data.query)
+
+        // Cache variables
+        const { pages, redirects, interwiki, specialpagealiases, namespaces } =
+          data.query
         /**
          * @desc 某些特殊页面会暴露服务器 IP 地址，必须特殊处理这些页面
          *       已知的危险页面包括 Mypage Mytalk
@@ -148,242 +165,322 @@ export const apply = (ctx: Context, configPartial: Config): void => {
         const dangerPageNames = ['Mypage', 'Mytalk']
         // 获取全部别名
         const dangerPages = specialpagealiases
-          .filter((spAlias: { realname: string }) =>
-            dangerPageNames.includes(spAlias.realname),
-          )
-          .map((spAlias: { aliases: string }) => spAlias.aliases)
-          .flat(Infinity)
+          .filter((i) => dangerPageNames.includes(i.realname))
+          .map((i) => i.aliases)
+          .flat(Infinity) as string[]
         // 获取本地特殊名字空间的标准名称
         const specialNsName = namespaces['-1'].name
-        if (
-          // 发生重定向
-          redirects &&
-          // 重定向自特殊页面
-          redirects[0].from.split(':').shift() === specialNsName &&
-          // 被标记为危险页面
-          dangerPages.includes(
-            redirects[0].from.split(':').pop().split('/').shift(),
-          )
-        ) {
-          // 覆写页面资料
-          pages = [
-            {
-              ns: -1,
-              title: redirects[0].from,
-              special: true,
-            },
-          ]
-          // 重置重定向信息
-          redirects = undefined
-        }
 
-        ctx.logger('wiki').debug({ pages })
-        const thisPage = pages[0]
-        const {
-          pageid,
-          title: pagetitle,
-          missing,
-          invalid,
-          // extract,
-          // fullurl,
-          special,
-          editurl,
-        } = thisPage
+        const pageMsgs =
+          pages?.map((page) => {
+            // Cache variables
+            const msg: string[] = []
+            let pageRedirect = redirects?.find(({ to }) => to === page.title)
+            let pageAnchor =
+              titles.find(
+                (i) =>
+                  i.name.toLocaleLowerCase() === page.title.toLocaleLowerCase(),
+              )?.anchor || ''
 
-        msg.push(`您要的“${pagetitle}”：`)
-        if (redirects && redirects.length > 0) {
-          const { from, to, tofragment } = redirects[0]
-          msg.push(
-            `重定向：[${from}] → [${to}${tofragment ? '#' + tofragment : ''}]`,
-          )
-          if (tofragment) anchor = '#' + encodeURI(tofragment)
-        }
-        if (invalid !== undefined) {
-          msg.push(`页面名称不合法：${thisPage.invalidreason || '原因未知'}`)
-        } else if (special) {
-          msg.push(
-            `${getUrl(mwApi, {
-              title: pagetitle,
-            })}${anchor} (${missing ? '不存在的' : ''}特殊页面)`,
-          )
-        } else if (missing !== undefined) {
-          if (!options?.search) {
-            msg.push(`${editurl} (页面不存在)`)
-          } else {
-            msg.push(`${editurl} (页面不存在，以下是搜索结果)`)
-            fullbackSearch = true
-          }
-        } else {
-          msg.push(getUrl(mwApi, { curid: pageid }) + anchor)
+            // 开始判断危险重定向
+            if (
+              // 发生重定向
+              pageRedirect &&
+              // 重定向自特殊页面
+              pageRedirect.from.split(':')[0] === specialNsName &&
+              // 被标记为危险页面
+              dangerPages.includes(
+                pageRedirect.from.split(':')?.[1].split('/')[0] || '',
+              )
+            ) {
+              // 覆写页面资料
+              page = {
+                ...page,
+                ns: -1,
+                title: pageRedirect.from,
+                special: true,
+              }
+              // 重置重定向信息
+              pageRedirect = undefined
+              delete page.missing
+            }
 
-          // Page Details
-          if (options?.details) {
-            const { parse } = await bot.request({
-              action: 'parse',
+            const {
               pageid,
-              prop: 'text|wikitext',
-              wrapoutputclass: 'mw-parser-output',
-              disablelimitreport: 1,
-              disableeditsection: 1,
-              disabletoc: 1,
-            })
-            const $ = cheerio.load(parse?.text?.['*'] || '')
-            const $contents = $('.mw-parser-output > p')
-            const extract = $contents.text().trim() || ''
-            ctx
-              .logger('mediawiki')
-              .debug({ html: parse.text, $contents, extract })
-            // const extract = parse?.wikitext?.['*'] || ''
-            if (extract) {
+              title: pagetitle,
+              missing,
+              invalid,
+              // extract,
+              canonicalurl,
+              special,
+              editurl,
+            } = page
+
+            // 打印开头
+            msg.push(`您要的“${pagetitle}”：`)
+            /** 处理特殊情况 */
+            // 重定向
+            if (pageRedirect) {
+              const { from, to, tofragment } = pageRedirect || {}
               msg.push(
-                extract.length > 150 ? extract.slice(0, 150) + '...' : extract,
+                `重定向：[${from}] → [${to}${
+                  tofragment ? '#' + tofragment : ''
+                }]`,
+              )
+              if (tofragment) pageAnchor = '#' + encodeURI(tofragment)
+            }
+            // 页面名不合法
+            if (invalid !== undefined) {
+              msg.push(`页面名称不合法：${page.invalidreason || '原因未知'}`)
+            }
+            // 特殊页面
+            else if (special) {
+              msg.push(
+                `${getUrl(mwApi, {
+                  title: pagetitle,
+                })}${pageAnchor} (${missing ? '不存在的' : ''}特殊页面)`,
               )
             }
-          }
+            // 不存在页面
+            else if (missing !== undefined) {
+              if (!options?.search) {
+                msg.push(`${editurl} (页面不存在)`)
+              } else {
+                msg.push(`${editurl} (页面不存在，以下是搜索结果)`)
+              }
+            } else {
+              const shortUrl = getUrl(mwApi, { curid: pageid })
+              msg.push(
+                (shortUrl.length <= canonicalurl.length
+                  ? shortUrl
+                  : canonicalurl) + pageAnchor,
+              )
+            }
+
+            return msg.join('\n')
+          }) || []
+
+        const interwikiMsgs =
+          interwiki?.map((item) => {
+            return [`跨语言链接：`, item.url].join('\n')
+          }) || []
+
+        const allMsgList = [...pageMsgs, ...interwikiMsgs]
+        let finalMsg: string | h = ''
+        if (allMsgList.length === 1) {
+          finalMsg = h.quote(session.messageId as string) + allMsgList[0]
+        } else if (allMsgList.length > 1) {
+          const msgBuilder = new BulkMessageBuilder(session)
+          allMsgList.forEach((i) => {
+            msgBuilder.botSay(i)
+          })
+          finalMsg = msgBuilder.prependOriginal().all()
         }
-      }
-      const result =
-        segment('quote', { id: session.messageId || '' }) + msg.join('\n')
-      if (fullbackSearch) {
-        await session.sendQueued(result)
-        const searchResult = await searchWiki(session, title)
-        if (searchResult) session.sendQueued(searchResult)
-        return
-      }
-      return result
-    })
 
-  // @command wiki.link
-  ctx
-    .command('wiki.link [api:string]', '将群聊与 MediaWiki 网站连接', {
-      authority: config.linkAuthority,
-    })
-    .channelFields(['mwApi'])
-    .action(async ({ session }, api) => {
-      if (!session?.channel) throw new Error()
-      const { channel } = session
-      if (!api) {
-        return channel.mwApi
-          ? `本群已与 ${channel.mwApi} 连接。`
-          : '本群未连接到 MediaWiki 网站，请使用“wiki.link <api网址>”进行连接。'
-      } else if (isValidApi(api)) {
-        channel.mwApi = api
-        await session.channel._update()
-        return session.execute('wiki.link')
-      } else {
-        return '输入的不是合法 api.php 网址。'
-      }
-    })
-
-  // @command wiki.search
-  ctx
-    .command('wiki.search <search:text>', '通过名称搜索页面', {
-      authority: config.searchAuthority,
-    })
-    .channelFields(['mwApi'])
-    .action(async ({ session }, search) => {
-      if (!session?.send) throw new Error()
-      return await searchWiki(session, search)
-    })
-
-  // Shortcut
-  ctx.middleware(async (session, next) => {
-    if (!session.content) return next()
-    await next()
-    const content = resolveBrackets(session.content)
-    const linkReg = /\[\[(.+?)(?:\|.*)?\]\]/g
-    // let matched = [];
-    const matched = [...content.matchAll(linkReg)].map((m) => m[1])
-    const titles = [...new Set(matched)]
-    if (!titles.length) return
-    ctx.logger('wiki').info('titles', titles)
-    const optionS = config.searchNonExist && titles.length == 1 ? '-s' : ''
-    const msg = await Promise.all(
-      titles.map(
-        async (i) => await session.execute(`wiki -q ${optionS} ${i}`, true),
-      ),
-    )
-    session.send(msg.join('\n----\n'))
-  })
-
-  // parse
-  ctx
-    .command('wiki.parse <text:text>', '解析 wiki 标记文本', {
-      minInterval: config.parseMinInterval,
-      authority: config.parseAuthority,
-    })
-    .option('title', '-t <title:string> 用于渲染的页面标题')
-    .option('pure', '-p 纯净模式')
-    .channelFields(['mwApi'])
-    .action(async ({ session, options }, text = '') => {
-      if (!session?.channel) throw new Error()
-      if (!text) return ''
-      if (!ctx.puppeteer) return '错误：未找到 puppeteer。'
-      text = resolveBrackets(text)
-      const { mwApi } = session.channel
-      if (!mwApi) return session.execute('wiki.link')
-      const bot = getBot(session)
-
-      const { parse, error } = await bot.request({
-        action: 'parse',
-        title: options?.title,
-        text,
-        pst: 1,
-        disableeditsection: 1,
-        preview: 1,
+        // 结果有且仅有一个存在的主名字空间的页面
+        if (
+          pages &&
+          pages.length === 1 &&
+          pages[0].ns === 0 &&
+          !pages[0].missing &&
+          !pages[0].invalid
+        ) {
+          await session.send(finalMsg)
+          session.send(await this.shotInfobox(pages[0].canonicalurl))
+        }
+        // 结果有且仅有一个不存在的主名字空间的页面
+        else if (
+          this.config.searchIfNotExist &&
+          pages.length === 1 &&
+          pages[0].ns === 0 &&
+          pages[0].missing &&
+          !pages[0].invalid
+        ) {
+          finalMsg += `\n💡即将为您搜索wiki……`
+          await session.send(finalMsg)
+          session.execute(`wiki.search ${pages[0].title}`)
+        }
+        // 其他情况
+        else {
+          return finalMsg
+        }
       })
 
-      // koishi.logger('wiki').info(JSON.stringify({ query, error }, null, 2))
+    this.ctx.middleware(async (session, next) => {
+      await next()
+      const titles = parseTitlesFromText(session.content || '')
+      if (!titles.length) {
+        return
+      }
+      session.execute(`wiki -q ${titles.join('|')}`)
+    })
 
-      if (!parse) return `出现了亿点问题${error ? '：' + error : ''}。`
-
-      const page = await ctx.puppeteer.page()
-
-      try {
-        if (options?.pure) {
-          await page.setContent(parse?.text?.['*'])
-          const img = await page.screenshot({ fullPage: true })
-          await page.close()
-          return segment.image(img)
+    // @command wiki.connect
+    // @command wiki.link
+    this.ctx
+      .command('wiki.connect [api:string]', '将群聊与 MediaWiki 网站连接', {
+        authority: this.config.cmdAuthConnect,
+      })
+      .alias('wiki.link')
+      .channelFields(['mwApi'])
+      .action(async ({ session }, api) => {
+        if (!session?.channel) throw new Error()
+        const { channel } = session
+        if (!api) {
+          return channel.mwApi
+            ? `本群已与 ${channel.mwApi} 连接。`
+            : '本群未连接到 MediaWiki 网站，请使用“wiki.connect <api网址>”进行连接。'
+        } else if (isValidApi(api)) {
+          channel.mwApi = api
+          await session.channel.$update()
+          return session.execute('wiki.connect')
+        } else {
+          return '输入的不是合法 api.php 网址。'
         }
+      })
 
-        await page.goto(getUrl(mwApi, { title: 'special:blankpage' }))
-        await page.evaluate((parse) => {
-          $('h1').text(parse?.title)
-          $('#mw-content-text').html(parse?.text?.['*'])
-          $('#mw-content-text').append(
-            '<p style="font-style: italic; color: #b00">[注意] 这是由自动程序生成的预览图片，不代表 wiki 观点。</p>',
+    // @command wiki.search
+    this.ctx
+      .command('wiki.search [srsearch:text]')
+      .channelFields(['mwApi'])
+      .action(async ({ session }, srsearch) => {
+        if (!session?.channel?.mwApi) {
+          return session?.execute('wiki.connect -h')
+        }
+        if (!srsearch) {
+          session.sendQueued('要搜索什么呢？(输入空行或句号取消)')
+          srsearch = (await session.prompt(30 * 1000)).trim()
+          if (!srsearch || srsearch === '.' || srsearch === '。') return ''
+        }
+        const api = useApi(session.channel.mwApi)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const {
+          data: {
+            query: {
+              searchinfo: { totalhits },
+              search,
+            },
+          },
+        } = await api.post<MWApiResponseQuerySearch>({
+          action: 'query',
+          list: 'search',
+          srsearch,
+          srlimit: 3,
+          redirects: 'true',
+        })
+
+        const msg: string[] = []
+
+        if (search.length < 1) {
+          return `关键词“${srsearch}”没有匹配结果。`
+        } else if (search.length === 1) {
+          return session.execute(`wiki ${search[0].title}`)
+        } else {
+          msg.push(
+            `🔍关键词“${srsearch}”共匹配到 ${totalhits} 个相关结果，展示前 ${search.length} 个：`,
           )
-        }, parse)
-        const img = await page.screenshot({ fullPage: true })
-        await page.close()
+        }
+        search.forEach((item, index: number) => {
+          msg.push(
+            `${index + 1} ${item.title}${
+              item.snippet
+                ? '\n    ' +
+                  item.snippet
+                    .trim()
+                    .replace(/<.+?>/g, '')
+                    .replace(/\n/g, '\n    ')
+                : ''
+            }`,
+          )
+        })
+        msg.push('✍️请输入想查看的页面编号')
 
-        return segment.image(img)
-      } catch (e) {
-        await page.close()
-        return `Shot failed: ${e}`
+        await session.sendQueued(msg.join('\n'))
+
+        const choose = parseInt(await session.prompt(30 * 1000))
+        if (!isNaN(choose) && search[choose - 1]) {
+          session.execute('wiki --details ' + search[choose - 1].title)
+        }
+      })
+  }
+
+  async shotInfobox(url: string) {
+    const matched = this.INFOBOX_DEFINITION.find((i) => {
+      if (typeof i.match === 'string') {
+        return new RegExp(i.match).test(url)
+      } else {
+        return i.match(new URL(url))
       }
     })
+    if (!matched) return ''
+    this.logger.info('SHOT_INFOBOX', url, matched.selector)
+    const start = Date.now()
+    const timeSpend = () => ((Date.now() - start) / 1000).toFixed(3) + 's'
 
-  ctx
-    .command('wiki.shot [title]', 'screenshot', {
-      authority: config.shotAuthority,
-    })
-    .channelFields(['mwApi'])
-    .action(async ({ session }, title) => {
-      if (!session?.channel) throw new Error()
-      const { mwApi } = session.channel
-      if (!mwApi) return 'Missing api endpoint'
-      if (!ctx.puppeteer) return 'Missing puppeteer'
-      const page = await ctx.puppeteer.page()
-      try {
-        await page.goto(getUrl(mwApi, { title }))
-        const img = await page.screenshot({ fullPage: true })
+    // 使用 render 模式或者 fallback 皮肤有效剔除不必要的内容，加快页面加载速度
+    const renderUrl = new URL(url)
+    // renderUrl.searchParams.set('action', 'render')
+    renderUrl.searchParams.set('useskin', 'fallback')
+
+    let pageLoaded = false
+    const page = await this.ctx.puppeteer.page()
+    await page.setViewport({ width: 960, height: 720 })
+
+    try {
+      // 开始竞速，load 事件触发后最多再等 5s
+      await Promise.race([
+        page.goto(renderUrl.toString(), {
+          timeout: 15 * 1000,
+          waitUntil: 'networkidle0',
+        }),
+        new Promise((resolve) => {
+          page.on('load', () => {
+            console.info('[TIMER]', 'page loaded', timeSpend())
+            pageLoaded = true
+            setTimeout(() => resolve(1), 5 * 1000)
+          })
+        }),
+      ])
+    } catch (e) {
+      console.info('[TIMER]', 'Navigation timeout', timeSpend())
+      this.logger.warn(
+        'SHOT_INFOBOX',
+        'Navigation timeout:',
+        `(page HAS ${pageLoaded ? '' : 'NOT'} loaded)`,
+        e,
+      )
+      if (!pageLoaded) {
         await page.close()
-        return segment.image(img)
-      } catch (e) {
-        await page.close()
-        return `Shot failed: ${e}`
+        return ''
       }
-    })
+    }
+
+    if (matched.injectStyles) {
+      await page.addStyleTag({ content: matched.injectStyles }).catch((e) => {
+        this.logger.warn('SHOT_INFOBOX', 'Inject styles error', e)
+      })
+    }
+
+    try {
+      const target = await page.$(
+        Array.isArray(matched.selector)
+          ? matched.selector.join(', ')
+          : matched.selector,
+      )
+      if (!target) {
+        this.logger.info('SHOT_INFOBOX', 'Canceled', 'Missing target')
+        await page.close()
+        return ''
+      }
+      const img = await target.screenshot({ type: 'jpeg', quality: 85 })
+      console.info('[TIMER]', 'OK', timeSpend())
+      this.logger.info('SHOT_INFOBOX', 'OK', img)
+      await page.close()
+      return h.image(img, 'image/jpeg')
+    } catch (e) {
+      this.logger.warn('SHOT_INFOBOX', 'Failed', e)
+      await page?.close()
+      return ''
+    }
+  }
 }
