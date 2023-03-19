@@ -1,7 +1,9 @@
 {
   "name": "koishi-plugin-mediawiki",
-  "version": "2.0.0-alpha.3",
+  "version": "2.0.0",
   "description": "MediaWiki for koishijs",
+  "author": "Dragon-Fish <824399619@qq.com>",
+  "license": "Apache-2.0",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "files": [
@@ -33,6 +35,30 @@
     "koishi-plugin-puppeteer": "^3.4.0"
   },
   "repository": "https://github.com/koishijs/koishi-plugin-mediawiki",
-  "author": "Dragon-Fish <824399619@qq.com>",
-  "license": "Apache-2.0"
+  "keywords": [
+    "koishi",
+    "koishi-plugin",
+    "mediawiki",
+    "mediawiki-bot",
+    "mediawiki-api",
+    "subscribe",
+    "chatbot"
+  ],
+  "koishi": {
+    "description": {
+      "en": "MediaWiki for Koishi.js - tightly connect your chat channel with your wiki site!",
+      "zh": "Koishi.js 的 MediaWiki 插件，将您的群聊与 wiki 站点紧密连接！"
+    },
+    "service": {
+      "required": [
+        "database",
+        "puppeteer"
+      ],
+      "optional": [],
+      "implements": []
+    },
+    "locales": [
+      "zh"
+    ]
+  }
 }
