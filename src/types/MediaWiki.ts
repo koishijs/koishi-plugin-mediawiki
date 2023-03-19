@@ -68,19 +68,22 @@ export interface MWApiResponseQueryPagesWithSiteinfo {
     namespaces: MWNamespaces
   }
 }
-export interface MWApiResponseQuerySearch {
+export interface MWApiResponsQueryPagesGeneratedBySearch {
   query: {
     searchinfo: {
       totalhits: number
     }
+    pages: {
+      pageid: number
+      ns: number
+      title: string
+      index: number
+      extract: string
+    }[]
     search: {
       ns: number
       title: string
       pageid: number
-      size: number
-      wordcount: number
-      snippet: string
-      timestamp: string
     }[]
   }
 }

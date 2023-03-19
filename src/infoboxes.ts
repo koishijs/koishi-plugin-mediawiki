@@ -27,6 +27,10 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
       {
         display: none !important;
       }
+      /* 调整信息框外观 */
+      .mw-parser-output .infotemplatebox {
+        margin: 1rem !important;
+      }
       `,
   },
   // Minecraft Wiki

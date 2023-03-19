@@ -4,6 +4,7 @@ export interface Config {
   cmdAuthWiki: number
   cmdAuthConnect: number
   cmdAuthSearch: number
-  searchIfNotExist: false
+  searchIfNotExist: boolean
+  showDetailsByDefault: boolean
   customInfoboxes: InfoboxDefinition[]
 }
