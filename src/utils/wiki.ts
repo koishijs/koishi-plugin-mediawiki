@@ -1,4 +1,4 @@
-import { MediaWikiApi } from 'mediawiki-api-axios/lib'
+import { MediaWikiApi } from 'mediawiki-api-axios'
 import { resolveBrackets } from './resolveBrackets'
 
 const MOCK_HEADER = {
