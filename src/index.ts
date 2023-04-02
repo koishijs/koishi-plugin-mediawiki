@@ -38,7 +38,7 @@ const DEFAULT_CONFIGS: Partial<Config> = {
 
 export const name = 'mediawiki'
 export default class PluginMediawiki {
-  static using = ['database', 'puppeteer']
+  static using = ['database']
   public INFOBOX_DEFINITION = [
     ...(this.config.customInfoboxes || []),
     ...INFOBOX_DEFINITION,
@@ -298,7 +298,7 @@ export default class PluginMediawiki {
           !pages[0].invalid
         ) {
           await session.send(finalMsg)
-          session.send(await this.shotInfobox(pages[0].canonicalurl))
+          session.send(await this.shotInfobox(pages[0].canonicalurl, true))
         }
         // 结果有且仅有一个不存在的主名字空间的页面
         else if (
@@ -417,7 +417,10 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
       })
   }
 
-  async shotInfobox(url: string) {
+  async shotInfobox(url: string, silence = false): Promise<string | h> {
+    if (!this.ctx.puppeteer) {
+      return silence ? '' : '无法获取截图，请安装 puppeteer 插件后再试~'
+    }
     const matched = this.INFOBOX_DEFINITION.find((i) => {
       if (typeof i.match === 'string') {
         return new RegExp(i.match).test(url)
