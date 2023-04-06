@@ -32,21 +32,25 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
         margin: 1rem !important;
       }
       `,
+    skin: 'fallback',
   },
   // Minecraft Wiki
   {
     match: (url) => url.host === 'minecraft.fandom.com',
     selector: ['.mw-parser-output .notaninfobox'],
+    skin: 'fallback',
   },
   // Fandom (basic)
   {
     match: (url) => url.host.endsWith('fandom.com'),
     selector: ['.mw-parser-output aside.portable-infobox'],
+    skin: 'fallback',
   },
   // 万界规划局
   {
     match: (url) => url.host.endsWith('wjghj.cn'),
     selector: ['.mw-parser-output .portable-infobox:not(.pi-theme-顶部提示小)'],
+    skin: 'fallback',
   },
   // 最终幻想XIV中文维基
   {

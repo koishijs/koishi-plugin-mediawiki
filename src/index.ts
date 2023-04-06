@@ -60,11 +60,14 @@ export default class PluginMediawiki {
       Schema.object({
         match: Schema.string()
           .description(
-            '正则表达式，决定该组信息框定义是否匹配当前请求的URL。(URL示例 `https://example.com/wiki/PageName?action=render`，填写示例：`^https?://example\\\\.com/`)',
+            '正则表达式，决定该组信息框定义是否匹配当前请求的URL。(URL示例 `https://example.com/wiki/PageName`，填写示例：`^https?://example\\\\.com/`)',
           )
           .required(),
         selector: Schema.array(String).description('信息框的选择器').required(),
         injectStyles: Schema.string().description('额外插入的CSS'),
+        skin: Schema.string().description(
+          '渲染时使用的皮肤，建议配置为 `fallback` 提高加载速度',
+        ),
       }),
     ).description('自定义信息框定义组，每一个定义组至少需要match以及selector'),
   })
@@ -366,11 +369,7 @@ export default class PluginMediawiki {
         const api = useApi(session.channel.mwApi)
         const {
           data: {
-            query: {
-              searchinfo: { totalhits },
-              search,
-              pages,
-            },
+            query: { searchinfo, search, pages },
           },
         } = await api.post<MWApiResponsQueryPagesGeneratedBySearch>({
           action: 'query',
@@ -400,7 +399,9 @@ export default class PluginMediawiki {
         } else {
           bulk.prependOriginal()
           bulk.botSay(
-            `🔍关键词“${keywords}”共匹配到 ${totalhits} 个相关结果，我来简单整理一下前 ${search.length} 个结果：`,
+            `🔍关键词“${keywords}”共匹配到 ${
+              searchinfo?.totalhits || '∅'
+            } 个相关结果，我来简单整理一下前 ${search.length} 个结果：`,
           )
         }
         pages
@@ -433,10 +434,8 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
     const start = Date.now()
     const timeSpend = () => ((Date.now() - start) / 1000).toFixed(3) + 's'
 
-    // 使用 render 模式或者 fallback 皮肤有效剔除不必要的内容，加快页面加载速度
-    const renderUrl = new URL(url)
-    // renderUrl.searchParams.set('action', 'render')
-    renderUrl.searchParams.set('useskin', 'fallback')
+    const pageURL = new URL(url)
+    pageURL.searchParams.set('useskin', matched.skin || '')
 
     let pageLoaded = false
     const page = await this.ctx.puppeteer.page()
@@ -445,7 +444,7 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
     try {
       // 开始竞速，load 事件触发后最多再等 5s
       await Promise.race([
-        page.goto(renderUrl.toString(), {
+        page.goto(pageURL.href, {
           timeout: 10 * 1000,
           waitUntil: 'networkidle0',
         }),
