@@ -1,24 +1,26 @@
-import { MediaWikiApi } from 'mediawiki-api-axios'
+import { MediaWikiApi } from 'wiki-saikou'
 import { resolveBrackets } from './resolveBrackets'
 
 const MOCK_HEADERS = [
   {
     match: (url: URL) => url.hostname.includes('huijiwiki.com'),
     headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.78',
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67',
     },
   },
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function useApi(baseURL: string): MediaWikiApi {
   const api = new MediaWikiApi(baseURL)
   const matchedMockHeader = MOCK_HEADERS.find((item) =>
     item.match(new URL(baseURL)),
   )
   if (matchedMockHeader) {
-    api.defaultOptions = { headers: matchedMockHeader.headers }
+    api.request.interceptors.request.use((ctx) => {
+      ctx.headers = { ...ctx.headers, ...matchedMockHeader.headers }
+      return ctx
+    })
   }
   return api
 }
