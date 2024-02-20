@@ -38,7 +38,7 @@ const DEFAULT_CONFIGS: Partial<Config> = {
 
 export const name = 'mediawiki'
 export default class PluginMediawiki {
-  static using = ['database']
+  static inject = ['database']
   public INFOBOX_DEFINITION = [
     ...(this.config.customInfoboxes || []),
     ...INFOBOX_DEFINITION,

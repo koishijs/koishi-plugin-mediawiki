@@ -2,7 +2,7 @@
 
 # MediaWiki for koishi.js
 
-<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/e4f28e88-a997-4563-9a31-bc49e59e8410" width="400">
+<!-- <img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/e4f28e88-a997-4563-9a31-bc49e59e8410" width="300"> -->
 
 Koishi.js 的 MediaWiki 插件，将您的群聊与 wiki 站点紧密连接！
 
@@ -28,8 +28,10 @@ npm i koishi-plugin-mediawiki
 Then in your entry file:
 
 ```ts
+// Import the plugin
+import PluginMediawiki from 'koishi-plugin-mediawiki'
 // the `app` is koishi App instance
-app.plugin('mediawiki', {
+app.plugin(PluginMediawiki, {
   // configs here...
 })
 ```
@@ -56,38 +58,38 @@ plugins:
 
 一键配置 wiki 与群组连接，无需写死在配置文件
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/a8cea95a-ccd0-4540-bca7-0e08ba0ce697)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/a8cea95a-ccd0-4540-bca7-0e08ba0ce697" width="350">
 
 ### 页面链接及详情
 
 **自动识别消息里的 wiki 链接**，兼容中文简繁转换，_此外还可以输出页面摘要（为防止刷屏预设关闭）_
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/e3ed2558-a3d9-4cf8-90c1-e217a4bdc0dd)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/e3ed2558-a3d9-4cf8-90c1-e217a4bdc0dd" width="350">
 
 **还能正确处理锚点**
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/37cb4a0e-ee54-45a8-b4f6-769e2e186983)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/37cb4a0e-ee54-45a8-b4f6-769e2e186983" width="350">
 
 **处理特殊页面，防止暴露敏感信息**
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/4ca54731-2615-4097-b5ee-3b5b418de925)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/4ca54731-2615-4097-b5ee-3b5b418de925" width="350">
 
 **即使页面不存在也不会爆炸**
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/a8f4199e-10a5-4440-816c-1544ddb8b97b)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/a8f4199e-10a5-4440-816c-1544ddb8b97b" width="350">
 
 ### 以及其他超酷的功能
 
 - 搜索 wiki，并给出前几个匹配项的摘要
 - 请求条目不存在时，自动使用关键字进行搜索（预设关闭）
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/9ba55cd7-0c35-4a7e-889f-9eec8ef0d68a)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/9ba55cd7-0c35-4a7e-889f-9eec8ef0d68a" width="350">
 
 - 发送条目的信息框（Infobox）截图（内置萌娘百科、灰机、Fandom 支持，其他 wiki 可能需要自行配置，见下方说明）
 
 **都看到这了，快去安装吧**
 
-![image](https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/708d3c37-f1c6-4731-b549-10572327c11a)
+<img src="https://github.com/koishijs/koishi-plugin-mediawiki/assets/44761872/708d3c37-f1c6-4731-b549-10572327c11a">
 
 ## 配置选项
 
@@ -112,7 +114,7 @@ interface Config {
 
 ```ts
 // 举个例子
-app.plugin('mediawiki', {
+app.plugin(PluginMediawiki, {
   customInfoboxes: [
     {
       // URL匹配规则
@@ -147,7 +149,7 @@ plugins:
 
 ## 系统需求
 
-- koishi 主程序版本 4.10+
+- koishi 主程序版本 `^4.16.0`
 - 需要数据库支持 `koishi-database-*`
 - 截图功能需要 `koishi-plugin-puppeteer`
 

@@ -1,23 +1,22 @@
-import { h, Universal, Session } from 'koishi'
+import { Session, Universal, h } from 'koishi'
+
+type MsgUser = Omit<Universal.User & Universal.GuildMember, 'id'>
 
 export class BulkMessageBuilder {
-  #figure = h('figure')
-  #bot: Universal.Author
-  #author: Universal.Author
+  #figure = h('message', { forward: '' })
+  #bot: MsgUser
+  #author: MsgUser
   #content: string
   #isPrependOriginal = false
   constructor(public session: Session) {
     this.#content = session.content
     this.#bot = {
       userId: this.session.bot.userId,
-      nickname: this.session.bot.nickname || this.session.bot.username || 'BOT',
+      nickname: this.session.bot.user.name || 'BOT',
     }
     this.#author = {
-      userId: session.author!.userId,
-      nickname:
-        session.author?.nickname ||
-        session.author?.username ||
-        session.author!.userId,
+      userId: session.userId,
+      nickname: session.username,
     }
   }
 
@@ -28,7 +27,7 @@ export class BulkMessageBuilder {
     return this.#figure
   }
 
-  addLine(author: Universal.Author, message: string) {
+  addLine(author: MsgUser, message: string) {
     this.#figure.children.push(h('message', author, message))
     return this
   }
