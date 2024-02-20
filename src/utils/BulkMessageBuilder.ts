@@ -9,7 +9,7 @@ export class BulkMessageBuilder {
   #content: string
   #isPrependOriginal = false
   constructor(public session: Session) {
-    this.#content = session.content
+    this.#content = session.content || ''
     this.#bot = {
       userId: this.session.bot.userId,
       nickname: this.session.bot.user.name || 'BOT',
