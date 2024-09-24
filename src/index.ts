@@ -64,9 +64,11 @@ export default class PluginMediawiki {
           )
           .required(),
         selector: Schema.array(String).description('信息框的选择器').required(),
-        injectStyles: Schema.string().description('额外插入的CSS'),
+        injectStyles: Schema.string()
+          .description('额外插入的CSS')
+          .role('textarea'),
         skin: Schema.string().description(
-          '渲染时使用的皮肤，建议配置为 `fallback` 提高加载速度',
+          '渲染时使用的皮肤，建议配置为 `apioutput` 提高加载速度',
         ),
       }),
     ).description('自定义信息框定义组，每一个定义组至少需要match以及selector'),

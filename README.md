@@ -153,6 +153,10 @@ plugins:
 - 需要数据库支持 `koishi-database-*`
 - 截图功能需要 `koishi-plugin-puppeteer`
 
+> [!WARNING]
+>
+> `3.0.0` 版本开始，仅支持 ESM 模块导入，不再支持 CommonJS 导入
+
 ---
 
     Copyright 2021 Dragon-Fish
