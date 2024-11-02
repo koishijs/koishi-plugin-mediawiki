@@ -5,9 +5,8 @@ import { InfoboxDefinition } from './types/Infobox'
  */
 export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
   // 萌娘百科
-  {
-    match: (url) => url.host.endsWith('moegirl.org.cn'),
-    selector: [
+  (() => {
+    const selectors = [
       // 标准信息框
       '.mw-parser-output .infotemplatebox',
       '.mw-parser-output table.infobox2',
@@ -15,25 +14,27 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
       '.mw-parser-output table.infoboxSpecial',
       // 旧版兼容
       '.mw-parser-output table.infobox',
-    ],
-    injectStyles: `
-      /* 隐藏部分妨碍截图的元素 */
-      /* 顶部导航栏和悬浮工具栏 */
-      body #moe-full-container > header#moe-global-header, body #moe-full-container > #moe-global-toolbar,
-      /* 右下角悬浮的功能按钮 */
-      #bottomRightCorner, 
-      /* 全站公告弹窗 */
-      body > .n-modal-container
-      {
-        display: none !important;
-      }
-      /* 调整信息框外观 */
-      .mw-parser-output .infotemplatebox {
-        margin: 1rem !important;
-      }
+    ]
+    return {
+      match: (url) => url.host.endsWith('moegirl.org.cn'),
+      selector: selectors,
+      injectStyles: `
+        /* 隐藏妨碍截图的元素 */
+        ${selectors.join(', ')} {
+          visibility: visible;
+          :not(&, & *) {
+            visibility: hidden;
+          }
+        }
+
+        /* 调整信息框外观 */
+        .mw-parser-output .infotemplatebox {
+          margin: 1rem !important;
+        }
       `,
-    skin: 'apioutput',
-  },
+      skin: 'apioutput',
+    }
+  })(),
   // Minecraft Wiki
   {
     match: (url) => url.host === 'minecraft.fandom.com',
