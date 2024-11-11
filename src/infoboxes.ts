@@ -5,8 +5,9 @@ import { InfoboxDefinition } from './types/Infobox'
  */
 export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
   // 萌娘百科
-  (() => {
-    const selectors = [
+  {
+    match: (url) => url.host.endsWith('moegirl.org.cn'),
+    selector: [
       // 标准信息框
       '.mw-parser-output .infotemplatebox',
       '.mw-parser-output table.infobox2',
@@ -14,27 +15,15 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
       '.mw-parser-output table.infoboxSpecial',
       // 旧版兼容
       '.mw-parser-output table.infobox',
-    ]
-    return {
-      match: (url) => url.host.endsWith('moegirl.org.cn'),
-      selector: selectors,
-      injectStyles: `
-        /* 隐藏妨碍截图的元素 */
-        ${selectors.join(', ')} {
-          visibility: visible;
-          :not(&, & *) {
-            visibility: hidden;
-          }
-        }
-
-        /* 调整信息框外观 */
-        .mw-parser-output .infotemplatebox {
-          margin: 1rem !important;
-        }
-      `,
-      skin: 'apioutput',
-    }
-  })(),
+    ],
+    injectStyles: `
+      /* 调整信息框外观 */
+      .mw-parser-output .infotemplatebox {
+        margin: 1rem !important;
+      }
+    `,
+    skin: 'apioutput',
+  },
   // Minecraft Wiki
   {
     match: (url) => url.host === 'minecraft.fandom.com',
@@ -68,3 +57,24 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
     ],
   },
 ]
+
+/**
+ * 获取要注入的样式
+ */
+export function getInjectStyles({
+  selector,
+  injectStyles,
+}: InfoboxDefinition): string {
+  return `
+    /* 隐藏妨碍截图的元素 */
+    ${Array.isArray(selector) ? selector.join(', ') : selector} {
+      visibility: visible;
+      :not(&, & *) {
+        visibility: hidden;
+      }
+    }
+
+    /* 配置定义 */
+    ${injectStyles}
+  `
+}

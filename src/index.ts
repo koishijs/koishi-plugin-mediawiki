@@ -17,7 +17,7 @@ import {
   parseTitlesFromText,
   useApi,
 } from './utils/wiki'
-import { INFOBOX_DEFINITION } from './infoboxes'
+import { getInjectStyles, INFOBOX_DEFINITION } from './infoboxes'
 import { BulkMessageBuilder } from './utils/BulkMessageBuilder'
 import { Config } from './types/Config'
 
@@ -485,10 +485,10 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
       }
     }
 
-    if (matched.injectStyles) {
-      await page.addStyleTag({ content: matched.injectStyles }).catch((e) => {
-        this.logger.warn('SHOT_INFOBOX', 'Inject styles error', e)
-      })
+    try {
+      await page.addStyleTag({ content: getInjectStyles(matched) })
+    } catch (e) {
+      this.logger.warn('SHOT_INFOBOX', 'Inject styles error', e)
     }
 
     try {
