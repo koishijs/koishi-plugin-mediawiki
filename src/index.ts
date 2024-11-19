@@ -10,6 +10,8 @@ import type {
   MWApiResponseQueryPagesWithSiteinfo,
   MWApiResponsQueryPagesGeneratedBySearch,
 } from './types/MediaWiki'
+import type { Config } from './types/Config'
+import type { InfoboxDefinition } from './types/Infobox'
 import {
   getUrl,
   getWikiDisplayTitle,
@@ -17,9 +19,8 @@ import {
   parseTitlesFromText,
   useApi,
 } from './utils/wiki'
-import { getInjectStyles, INFOBOX_DEFINITION } from './infoboxes'
+import { INFOBOX_DEFINITION } from './infoboxes'
 import { BulkMessageBuilder } from './utils/BulkMessageBuilder'
-import { Config } from './types/Config'
 
 declare module 'koishi' {
   interface Channel {
@@ -55,6 +56,9 @@ export default class PluginMediawiki {
       .default(1),
     searchIfNotExist: Schema.boolean().description(
       '触发`wiki`指令时，结果有且仅有一个不存在的主名字空间的页面时否自动触发搜索',
+    ),
+    showDetailsByDefault: Schema.boolean().description(
+      '触发`wiki`指令时，是否默认附带页面摘要和信息框截图',
     ),
     customInfoboxes: Schema.array(
       Schema.object({
@@ -486,7 +490,9 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
     }
 
     try {
-      await page.addStyleTag({ content: getInjectStyles(matched) })
+      await page.addStyleTag({
+        content: this.createInjectStylesFromDefinition(matched),
+      })
     } catch (e) {
       this.logger.warn('SHOT_INFOBOX', 'Inject styles error', e)
     }
@@ -512,5 +518,23 @@ ${getUrl(session.channel!.mwApi!, { curid: item.pageid })}`,
       await page?.close()
       return ''
     }
+  }
+
+  createInjectStylesFromDefinition({
+    selector,
+    injectStyles,
+  }: InfoboxDefinition): string {
+    return `
+      /* 隐藏妨碍截图的元素 */
+      ${Array.isArray(selector) ? selector.join(', ') : selector} {
+        visibility: visible;
+        :not(&, & *) {
+          visibility: hidden;
+        }
+      }
+  
+      /* 配置定义 */
+      ${injectStyles}
+    `
   }
 }

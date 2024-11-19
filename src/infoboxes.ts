@@ -57,24 +57,3 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
     ],
   },
 ]
-
-/**
- * 获取要注入的样式
- */
-export function getInjectStyles({
-  selector,
-  injectStyles,
-}: InfoboxDefinition): string {
-  return `
-    /* 隐藏妨碍截图的元素 */
-    ${Array.isArray(selector) ? selector.join(', ') : selector} {
-      visibility: visible;
-      :not(&, & *) {
-        visibility: hidden;
-      }
-    }
-
-    /* 配置定义 */
-    ${injectStyles}
-  `
-}
