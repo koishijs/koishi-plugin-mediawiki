@@ -17,21 +17,11 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
       '.mw-parser-output table.infobox',
     ],
     injectStyles: `
-      /* 隐藏部分妨碍截图的元素 */
-      /* 顶部导航栏和悬浮工具栏 */
-      body #moe-full-container > header#moe-global-header, body #moe-full-container > #moe-global-toolbar,
-      /* 右下角悬浮的功能按钮 */
-      #bottomRightCorner, 
-      /* 全站公告弹窗 */
-      body > .n-modal-container
-      {
-        display: none !important;
-      }
       /* 调整信息框外观 */
       .mw-parser-output .infotemplatebox {
         margin: 1rem !important;
       }
-      `,
+    `,
     skin: 'apioutput',
   },
   // Minecraft Wiki
@@ -67,3 +57,24 @@ export const INFOBOX_DEFINITION: InfoboxDefinition[] = [
     ],
   },
 ]
+
+/**
+ * 获取要注入的样式
+ */
+export function getInjectStyles({
+  selector,
+  injectStyles,
+}: InfoboxDefinition): string {
+  return `
+    /* 隐藏妨碍截图的元素 */
+    ${Array.isArray(selector) ? selector.join(', ') : selector} {
+      visibility: visible;
+      :not(&, & *) {
+        visibility: hidden;
+      }
+    }
+
+    /* 配置定义 */
+    ${injectStyles}
+  `
+}
